@@ -165,5 +165,27 @@ class HardwareManager(QObject):
     def validate_connection(self, device_id: str, resource_string: str):
         validator = ValidatorThread(device_id, resource_string)
         validator.validation_result.connect(self.validation_result.emit)
+
+        # A referência tem de ser mantida enquanto a thread corre (sem ela o
+        # garbage collector destruiria o QThread em execução), mas tem de ser
+        # solta quando ela termina — ver B8.
         self._validators.append(validator)
+        validator.finished.connect(self._discard_validator)
+
         validator.start()
+
+    def _discard_validator(self):
+        """
+        Solta a referência de um ValidatorThread já terminado (B8).
+
+        Ligado a um método do HardwareManager (que vive na thread da UI), o
+        Qt usa conexão em fila: este slot corre na thread da UI, então mexer
+        na lista é seguro. O wait() garante que a thread saiu de facto antes
+        de largarmos a última referência a ela.
+        """
+        validator = self.sender()
+        if validator is None:
+            return
+        validator.wait()
+        if validator in self._validators:
+            self._validators.remove(validator)

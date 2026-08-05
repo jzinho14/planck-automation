@@ -51,13 +51,40 @@ sub_abas = [p for p in (janela.pagina_simulacao, janela.pagina_bancada)
             if p.findChildren(QTabWidget)]
 checa(not sub_abas, "nenhuma página de coleta tem sub-abas")
 
-print("\n2. Cabeçalho de estado visível de qualquer página")
+print("\n2. Estado dos instrumentos, discreto e sempre visível")
 
-checa(hasattr(janela, "lbl_fonte") and hasattr(janela, "lbl_multimetro"),
-      "há indicadores fixos dos dois instrumentos")
+janela.resize(1280, 820)
+app.processEvents()
+
+checa(hasattr(janela, "lbl_estado"), "há um indicador de estado na barra de título")
+checa(janela.lbl_estado.parent() is janela.titleBar,
+      "e ele pertence à barra de título, não a nenhuma página")
+
+# A regressão que motivou este bloco: o cabeçalho foi inserido no
+# widgetLayout, que é HORIZONTAL, e virou uma coluna que comia 80% da
+# largura. As páginas têm de ficar com quase toda a área útil.
+largura_janela = janela.width()
+largura_paginas = janela.stackedWidget.width()
+fracao = largura_paginas / largura_janela
+checa(fracao > 0.6,
+      "as páginas ocupam a maior parte da largura da janela",
+      f"{largura_paginas} de {largura_janela} px ({fracao*100:.0f}%)")
+
+altura_status = janela.barra_status.height()
+checa(altura_status < janela.height() * 0.1,
+      "a barra de status é uma faixa fina, não um painel",
+      f"{altura_status} px de {janela.height()}")
+
+checa(len(janela.lbl_estado.text()) < 60,
+      "o texto de estado é curto — o detalhe fica no tooltip",
+      repr(janela.lbl_estado.text()))
+checa("VI_ERROR" not in janela.lbl_estado.text(),
+      "mensagens cruas de erro VISA não vazam para a barra de título")
+
 janela.stackedWidget.setCurrentWidget(janela.pagina_bancada)
-checa(janela.faixa.isVisible() or True,
-      "o cabeçalho não pertence a nenhuma página específica")
+app.processEvents()
+checa(janela.stackedWidget.width() / janela.width() > 0.6,
+      "e continuam ocupando, em qualquer página")
 checa(janela.barra_status.text() != "", "barra de status permanente",
       janela.barra_status.text())
 
@@ -88,8 +115,8 @@ conexao.switch_demo.setChecked(True)
 checa(conexao.recurso_de(conexao.combo_pws).startswith("DEMO::"),
       "recursos viram simulados", conexao.recurso_de(conexao.combo_pws))
 janela.atualizar_cabecalho()
-checa("DEMONSTRAÇÃO" in janela.lbl_modo.text(),
-      "e o cabeçalho anuncia o modo", janela.lbl_modo.text())
+checa("demonstração" in janela.lbl_estado.text(),
+      "e a barra de título anuncia o modo", janela.lbl_estado.text())
 janela.pagina_bancada.atualizar_faixa()
 checa("demonstração" in janela.pagina_bancada.lbl_seguranca.text(),
       "a faixa de segurança da Bancada também",

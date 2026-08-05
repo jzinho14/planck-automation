@@ -428,8 +428,13 @@ profiles/
      Simulação, Bancada, Referências.
    - **Fim das abas dentro de abas**: parâmetros têm página própria; as páginas
      de coleta só executam e mostram.
-   - **Cabeçalho fixo** com o estado dos dois instrumentos, visível de qualquer
-     página, + barra de status com ponto atual, temperatura e arquivo em gravação.
+   - Estado dos instrumentos **na barra de título**, compacto (símbolo + tooltip),
+     visível de qualquer página; barra de status fina embaixo com ponto atual,
+     temperatura e arquivo em gravação.
+   - ⚠ **Cuidado de layout:** `widgetLayout` do FluentWindow é **horizontal**
+     (navegação | páginas). Inserir widget nele cria uma COLUNA, não uma faixa —
+     a primeira versão fez isso e o cabeçalho comeu 80% da largura. Para algo
+     abaixo das páginas, o `stackedWidget` mora num container vertical.
    - **B4 morto:** limite de corrente é `DoubleSpinBox` (0,1–3,0 A), persistido e
      gravado nos metadados. Padrão passou de 2,0 A (hardcoded) para 1,5 A.
    - **B5 morto:** IP e porta do DMM são campos; `endereco_dmm()` monta a string.

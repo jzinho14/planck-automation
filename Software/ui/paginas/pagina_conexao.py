@@ -11,6 +11,8 @@ justamente de existir onde configurar:
   B5 — o endereço do multímetro estava escrito no código. Agora são campos de
        IP e porta, persistidos em QSettings.
 """
+from dataclasses import dataclass
+
 from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFormLayout
 from PySide6.QtCore import Qt, Signal
 
@@ -28,16 +30,29 @@ from core.mock_hardware import bancada_simulada
 from utils.math_models import TEMPERATURA_AMBIENTE_PADRAO
 
 
+@dataclass(frozen=True)
+class EstadoInstrumento:
+    """Estado de um instrumento: símbolo curto para a UI, detalhe no tooltip."""
+
+    simbolo: str
+    detalhe: str
+
+
+NAO_VERIFICADO = EstadoInstrumento("⚪", "não verificado")
+
+
 class PaginaConexao(QWidget):
     """Descoberta, validação e configuração dos instrumentos."""
 
-    estado_mudou = Signal()   # a janela usa para atualizar o cabeçalho
+    estado_mudou = Signal()   # a janela usa para atualizar a barra de título
 
     def __init__(self, hw_manager, parent=None):
         super().__init__(parent)
         self.setObjectName("pagina_conexao")
         self.hw_manager = hw_manager
         self.settings = preferencias()
+        self._estado_pws = NAO_VERIFICADO
+        self._estado_dmm = NAO_VERIFICADO
 
         self._montar()
         self._ligar_sinais()
@@ -211,6 +226,12 @@ class PaginaConexao(QWidget):
         self.hw_manager.validate_connection("PWS", self.recurso_de(self.combo_pws))
         self.hw_manager.validate_connection("DMM", self.recurso_de(self.combo_dmm))
 
+    def _guardar_estado(self, dispositivo: str, estado: EstadoInstrumento):
+        if dispositivo == "PWS":
+            self._estado_pws = estado
+        else:
+            self._estado_dmm = estado
+
     def mostrar_validacao(self, dispositivo: str, valido: bool, mensagem: str):
         rotulo = self.lbl_estado_pws if dispositivo == "PWS" else self.lbl_estado_dmm
         combo = self.combo_pws if dispositivo == "PWS" else self.combo_dmm
@@ -218,7 +239,10 @@ class PaginaConexao(QWidget):
         simulado = recurso.upper().startswith("DEMO::")
 
         if valido:
-            rotulo.setText(("🟡 simulado — " if simulado else "🟢 ") + mensagem.strip()[:60])
+            simbolo = "🟡" if simulado else "🟢"
+            resumo = "simulado" if simulado else "conectado"
+            rotulo.setText(f"{simbolo} {resumo} — {mensagem.strip()[:60]}")
+            self._guardar_estado(dispositivo, EstadoInstrumento(simbolo, mensagem.strip()))
             # Recursos simulados nunca viram "último instrumento válido".
             if not simulado:
                 self.settings.setValue(f"Connection/Last{dispositivo}Name", combo.currentText())
@@ -227,7 +251,8 @@ class PaginaConexao(QWidget):
                                 parent=self.window(), position=InfoBarPosition.TOP,
                                 duration=3000)
         else:
-            rotulo.setText(f"🔴 {mensagem.strip()[:60]}")
+            rotulo.setText(f"🔴 falhou — {mensagem.strip()[:60]}")
+            self._guardar_estado(dispositivo, EstadoInstrumento("🔴", mensagem.strip()))
             InfoBar.error("Falha na ligação", f"{dispositivo}: {mensagem.strip()[:90]}",
                           parent=self.window(), position=InfoBarPosition.TOP,
                           duration=5000)
@@ -250,6 +275,8 @@ class PaginaConexao(QWidget):
                                   [("DMM4050 (simulado)", STRING_RECURSO_DMM)])
             self.lbl_estado_pws.setText("🟡 simulado")
             self.lbl_estado_dmm.setText("🟡 simulado")
+            simulado = EstadoInstrumento("🟡", "instrumento simulado")
+            self._estado_pws = self._estado_dmm = simulado
             bancada = bancada_simulada()
             r_frio = bancada.resistencia_a_frio(TEMPERATURA_AMBIENTE_PADRAO)
             self.lbl_demo.setText(
@@ -268,6 +295,7 @@ class PaginaConexao(QWidget):
                     combo.addItem(nome, userData=recurso)
             self.lbl_estado_pws.setText("⚪ não verificado")
             self.lbl_estado_dmm.setText("⚪ não verificado")
+            self._estado_pws = self._estado_dmm = NAO_VERIFICADO
             self.lbl_demo.setText("")
 
         self.estado_mudou.emit()
@@ -275,5 +303,12 @@ class PaginaConexao(QWidget):
     # -- consultado pela janela ---------------------------------------------
 
     def resumo_estado(self) -> tuple:
-        """(texto da fonte, texto do multímetro) para o cabeçalho fixo."""
-        return self.lbl_estado_pws.text(), self.lbl_estado_dmm.text()
+        """
+        (estado da fonte, estado do multímetro) para a barra de título.
+
+        Devolve símbolo curto + detalhe separados: a barra de título mostra só
+        o símbolo, e o detalhe — que pode ser uma mensagem de erro VISA inteira
+        — fica no tooltip. Despejar o erro cru no cabeçalho foi o que quebrou o
+        layout da primeira versão.
+        """
+        return self._estado_pws, self._estado_dmm

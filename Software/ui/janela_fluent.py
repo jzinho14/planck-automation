@@ -95,32 +95,57 @@ class JanelaPlanck(FluentWindow):
         self.hw_manager = HardwareManager()
 
         self._montar_cabecalho()
+        self._montar_area_central()
         self._montar_paginas()
-        self._montar_status()
 
         self.atualizar_cabecalho()
 
     # -- estrutura -----------------------------------------------------------
 
     def _montar_cabecalho(self):
-        """Faixa fixa com o estado dos instrumentos, visível de qualquer página."""
-        self.faixa = QWidget(self)
-        linha = QHBoxLayout(self.faixa)
-        linha.setContentsMargins(16, 6, 16, 6)
+        """
+        Estado dos instrumentos na BARRA DE TÍTULO, discreto.
 
-        self.lbl_fonte = BodyLabel("⚪ PWS4323")
-        self.lbl_multimetro = BodyLabel("⚪ DMM4050")
-        self.lbl_modo = StrongBodyLabel("")
+        Ele precisa estar visível de qualquer página, mas é informação de
+        canto: quem está olhando um gráfico não quer duas frases de erro VISA
+        no meio da tela. Vai como um rótulo curto, com o detalhe no tooltip.
 
-        linha.addWidget(self.lbl_fonte)
-        linha.addSpacing(18)
-        linha.addWidget(self.lbl_multimetro)
-        linha.addSpacing(18)
-        linha.addWidget(self.lbl_modo)
-        linha.addStretch()
+        Cuidado com o layout: `widgetLayout` do FluentWindow é HORIZONTAL
+        (navegação | páginas). Inserir um cabeçalho nele cria uma COLUNA, não
+        uma faixa — foi exatamente esse o erro da primeira versão, que comeu
+        80% da largura da janela.
+        """
+        self.lbl_estado = CaptionLabel("")
+        self.lbl_estado.setObjectName("estadoInstrumentos")
 
-        # Entra acima da área de páginas, dentro do layout do FluentWindow.
-        self.widgetLayout.insertWidget(0, self.faixa)
+        barra = self.titleBar.hBoxLayout
+        # Os botões de janela são o último item; entramos antes deles.
+        posicao = barra.count() - 1
+        barra.insertStretch(posicao, 1)
+        barra.insertWidget(posicao + 1, self.lbl_estado, 0, Qt.AlignVCenter)
+        barra.insertSpacing(posicao + 2, 16)
+
+    def _montar_area_central(self):
+        """
+        Empilha as páginas sobre a barra de status.
+
+        Como `widgetLayout` é horizontal, para ter algo ABAIXO das páginas o
+        stackedWidget precisa morar dentro de um container vertical.
+        """
+        self.barra_status = CaptionLabel("Pronto")
+        self.barra_status.setObjectName("barraStatus")
+        self.barra_status.setContentsMargins(16, 4, 16, 6)
+
+        self.widgetLayout.removeWidget(self.stackedWidget)
+
+        container = QWidget(self)
+        coluna = QVBoxLayout(container)
+        coluna.setContentsMargins(0, 0, 0, 0)
+        coluna.setSpacing(0)
+        coluna.addWidget(self.stackedWidget, stretch=1)
+        coluna.addWidget(self.barra_status)
+
+        self.widgetLayout.addWidget(container)
 
     def _montar_paginas(self):
         self.pagina_conexao = PaginaConexao(self.hw_manager)
@@ -141,11 +166,6 @@ class JanelaPlanck(FluentWindow):
         self.pagina_conexao.estado_mudou.connect(self.atualizar_cabecalho)
         self.stackedWidget.currentChanged.connect(self._ao_trocar_pagina)
 
-    def _montar_status(self):
-        self.barra_status = CaptionLabel("Pronto")
-        self.barra_status.setContentsMargins(16, 4, 16, 6)
-        self.widgetLayout.addWidget(self.barra_status)
-
     # -- comportamento -------------------------------------------------------
 
     def _ao_trocar_pagina(self):
@@ -153,12 +173,18 @@ class JanelaPlanck(FluentWindow):
             self.pagina_bancada.atualizar_faixa()
 
     def atualizar_cabecalho(self):
+        """Resume o estado dos dois instrumentos numa linha curta."""
         fonte, multimetro = self.pagina_conexao.resumo_estado()
-        self.lbl_fonte.setText(f"PWS4323: {fonte}")
-        self.lbl_multimetro.setText(f"DMM4050: {multimetro}")
-
         demo = self.pagina_conexao.switch_demo.isChecked()
-        self.lbl_modo.setText("🧪 MODO DEMONSTRAÇÃO" if demo else "")
+
+        partes = [f"{fonte.simbolo} Fonte", f"{multimetro.simbolo} Multímetro"]
+        if demo:
+            partes.append("🧪 demonstração")
+        self.lbl_estado.setText("   ".join(partes))
+        self.lbl_estado.setToolTip(
+            f"Fonte PWS4323: {fonte.detalhe}\n"
+            f"Multímetro DMM4050: {multimetro.detalhe}")
+
         self.pagina_bancada.atualizar_faixa()
 
     def atualizar_status(self, texto: str):

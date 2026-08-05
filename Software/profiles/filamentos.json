@@ -1,0 +1,16 @@
+[
+  {
+    "nome": "Padrão do software",
+    "alpha": 0.00523,
+    "beta": 7e-07,
+    "fonte": "Origem não documentada — ver PENDENCIAS.txt, P1",
+    "observacao": "É o par com que TODAS as coletas em data_backup/ foram processadas. Continua padrão para não invalidar o histórico, mas prefira um preset com fonte citada."
+  },
+  {
+    "nome": "Artigo RBEF / PHYWE",
+    "alpha": 0.00482,
+    "beta": 6.76e-07,
+    "fonte": "Cavalcante & Haag (2005), Eq. 10 — dados PHYWE",
+    "observacao": "Valores do artigo de referência. Diferem do padrão em ~8% em α e ~3% em β."
+  }
+]

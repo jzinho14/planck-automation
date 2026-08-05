@@ -1,0 +1,23 @@
+[
+  {
+    "nome": "Amarelo 590 nm",
+    "lambda_nm": 590.0,
+    "delta_lambda_nm": 30.0,
+    "fonte": "Cavalcante & Haag (2005), seção 3.3 — Δλ de 25 a 35 nm",
+    "observacao": "O LED usado na montagem de referência do artigo."
+  },
+  {
+    "nome": "Vermelho 660 nm",
+    "lambda_nm": 660.0,
+    "delta_lambda_nm": 30.0,
+    "fonte": "Faixa típica de LED vermelho; Δλ do artigo",
+    "observacao": "Confirme λ com o datasheet do componente específico."
+  },
+  {
+    "nome": "Verde 525 nm",
+    "lambda_nm": 525.0,
+    "delta_lambda_nm": 35.0,
+    "fonte": "Faixa típica de LED verde; Δλ do artigo",
+    "observacao": "λ mais curto favorece a aproximação de Wien."
+  }
+]

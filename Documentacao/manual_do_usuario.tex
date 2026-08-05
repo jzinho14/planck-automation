@@ -310,6 +310,27 @@ durante a coleta --- mas isso não substitui a conferência da montagem.
 
 A sub-aba \campo{1. Parâmetros Reais} tem dois grupos.
 
+\paragraph{Perfis.}
+No topo do painel há três caixas de seleção --- \campo{LED (sensor)},
+\campo{Filamento} e \campo{Varredura} --- que preenchem os campos abaixo de uma
+vez. Passe o mouse sobre cada caixa para ver a \emph{fonte} daqueles valores.
+
+Os perfis ficam em arquivos de texto editáveis, em \texttt{Software/profiles/}:
+para cadastrar um LED novo, basta acrescentá-lo a \texttt{leds.json}. Se algum
+arquivo estiver com erro, o software avisa em amarelo no próprio painel e segue
+funcionando com os valores embutidos --- uma coleta nunca é impedida por um
+JSON malformado.
+
+O botão \botao{Salvar varredura atual como perfil} guarda a faixa, o passo, a
+espera e o número de leituras que você está usando, para reaproveitar depois.
+
+\begin{aviso}
+\textbf{A resistência a frio não é perfil.} Ela é propriedade do filamento
+específico que está montado na sua bancada, e deve ser medida a cada montagem.
+Por isso continua sendo um campo que você preenche, não algo que vem de
+catálogo.
+\end{aviso}
+
 \paragraph{Calibração Física do Filamento.}
 
 \begin{center}
@@ -317,9 +338,9 @@ A sub-aba \campo{1. Parâmetros Reais} tem dois grupos.
 \toprule
 \textbf{Campo} & \textbf{Padrão} & \textbf{O que é} \\
 \midrule
-Preset de coeficientes & Padrão do software &
+Perfil de filamento & Padrão do software &
 Preenche $\alpha$ e $\beta$ com um par de valores conhecido. Passe o mouse
-sobre a caixa para ver a fonte de cada preset. \\[0.3em]
+sobre a caixa para ver a fonte. \\[0.3em]
 Resistência a frio medida & 1,2~$\Omega$ &
 O valor que o ohmímetro lê no filamento em repouso. \\[0.3em]
 Temperatura ambiente & 25~°C &
@@ -433,6 +454,34 @@ ela que o software usa para calcular a resistência --- a leitura de retorno é
 mais exata que o valor programado. As duas ficam gravadas para que você possa
 conferir a diferença depois. As cinco primeiras colunas mantêm a ordem
 histórica, então arquivos antigos continuam legíveis pelas mesmas ferramentas.
+
+Se você pedir mais de uma leitura por ponto, duas colunas adicionais registram
+o desvio estatístico e o número de leituras.
+
+\subsection{O arquivo de metadados}
+
+Junto com o CSV, cada coleta grava um arquivo \texttt{.json} de mesmo nome:
+
+\begin{quote}\ttfamily
+data\_backup/exp\_planck\_20260805\_143000.csv \quad -- as medidas\\
+data\_backup/exp\_planck\_20260805\_143000.json \quad -- como foram obtidas
+\end{quote}
+
+Ele guarda tudo que você configurou: os perfis escolhidos, a resistência a frio
+medida \emph{e} a temperatura em que foi medida, o $R_0$ corrigido, os
+coeficientes, o LED, a faixa de varredura, e ao final o resultado com incerteza
+e o orçamento completo.
+
+\begin{aviso}
+\textbf{Por que isso é importante.} Meses depois, um CSV sozinho não diz com
+quais parâmetros foi obtido. Com o JSON ao lado, qualquer coleta pode ser
+reinterpretada, comparada ou reprocessada sem depender de memória ou de
+anotação avulsa.
+
+O arquivo é gravado logo no início da coleta e atualizado no fim --- então,
+mesmo que falte energia no meio do experimento, os parâmetros já estão
+registrados.
+\end{aviso}
 
 % =============================================================
 \section{Lendo os resultados}

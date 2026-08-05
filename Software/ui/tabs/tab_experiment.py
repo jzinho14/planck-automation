@@ -13,13 +13,11 @@ from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont
 import pyqtgraph as pg
 
-from content.filamentos import PRESETS_FILAMENTO, PRESET_PADRAO
-from utils.math_models import (calculate_temperature, corrigir_r0_para_zero_celsius,
-                               selecionar_pontos_validos, H_REF,
-                               TEMPERATURA_AMBIENTE_PADRAO, TEMPERATURA_MINIMA_PADRAO)
-from utils.error_models import (analisar_experimento, incerteza_tipo_a,
-                                incerteza_r0_corrigido, DELTA_LAMBDA_PADRAO_NM,
-                                INCERTEZA_TEMPERATURA_AMBIENTE)
+from core import metadados
+from content.perfis import especificacoes_de_instrumentos
+from ui.components.painel_parametros import PainelParametros
+from utils.math_models import (calculate_temperature, selecionar_pontos_validos, H_REF)
+from utils.error_models import analisar_experimento, incerteza_tipo_a
 from core.hardware_manager import (obter_drivers, preferencias,
                                    CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
@@ -77,6 +75,12 @@ class ExperimentWorker(QThread):
                 writer.writerow(["Tensao_Fonte_V", "Corrente_Filamento_A", "Resistencia_Ohms",
                                  "Temperatura_K", "Fotocorrente_A", "Tensao_Medida_V",
                                  "Desvio_Fotocorrente_A", "N_Leituras"])
+
+            # Metadados gravados JA na abertura (P5): se faltar energia no
+            # meio da coleta, os parâmetros usados já estão registrados.
+            self.metadados = metadados.montar_abertura(
+                self.params, self.modo_demonstracao, self.dmm_res, self.pws_res)
+            metadados.gravar(self.csv_filename, self.metadados)
 
             v_start = self.params['v_start']
             v_end = self.params['v_end']
@@ -170,6 +174,7 @@ class ExperimentWorker(QThread):
                         u_r0=self.params['u_r0'],
                         u_fotocorrente_tipo_a=np.array(data_u_led),
                         t_minima=self.params['t_minima'],
+                        **self._specs_dos_perfis(),
                     )
                 except ValueError as erro_analise:
                     self.error_occurred.emit(
@@ -177,6 +182,10 @@ class ExperimentWorker(QThread):
                         f"{erro_analise}\nO CSV foi salvo em {self.csv_filename}."
                     )
                     return
+                self.metadados["encerrado_em"] = datetime.now().astimezone().isoformat(timespec="seconds")
+                self.metadados["resultado"] = metadados.montar_resultado(resultado)
+                metadados.gravar(self.csv_filename, self.metadados)
+
                 self.finished_exp.emit(resultado)
             elif not self.is_running:
                 # Interrompido antes de ter 3 pontos (impossível fazer regressão)
@@ -191,6 +200,22 @@ class ExperimentWorker(QThread):
                 pws.close()
             if dmm: 
                 dmm.close()
+
+    def _specs_dos_perfis(self) -> dict:
+        """
+        Especificações de exatidão vindas de profiles/instrumentos.json.
+
+        Trocar de multímetro passa a ser trocar um JSON, não editar código.
+        Grandezas ausentes no perfil caem no padrão de error_models.
+        """
+        do_perfil = especificacoes_de_instrumentos()
+        argumentos = {}
+        for grandeza, chave in (("fotocorrente", "spec_fotocorrente"),
+                                ("tensao_fonte", "spec_tensao"),
+                                ("corrente_fonte", "spec_corrente")):
+            if grandeza in do_perfil:
+                argumentos[chave] = do_perfil[grandeza]
+        return argumentos
 
     def stop(self):
         self.is_running = False
@@ -223,138 +248,28 @@ class TabExperiment(QWidget):
 
     def build_config_tab(self):
         layout = QHBoxLayout(self.tab_config)
-        
-        group_params = QGroupBox("Calibração Física do Filamento")
-        form_params = QFormLayout()
 
-        # A3: presets de coeficientes com fonte citada.
-        self.combo_preset = QComboBox()
-        for preset in PRESETS_FILAMENTO:
-            self.combo_preset.addItem(preset.rotulo, preset)
-        self.combo_preset.currentIndexChanged.connect(self.aplicar_preset_filamento)
-
-        self.input_r_frio = QLineEdit("1.2")
-        self.input_t_ambiente = QLineEdit(str(TEMPERATURA_AMBIENTE_PADRAO))
-        self.input_alpha = QLineEdit(str(PRESET_PADRAO.alpha))
-        self.input_beta = QLineEdit(str(PRESET_PADRAO.beta))
-        self.input_lambda = QLineEdit("590")
-        self.input_delta_lambda = QLineEdit(str(DELTA_LAMBDA_PADRAO_NM))
-        self.input_r_cabos = QLineEdit("0.0")
-        self.input_u_r_frio = QLineEdit("0.01")
-
-        self.input_delta_lambda.setToolTip(
-            "Meia largura espectral do LED. O artigo cita 25 a 35 nm.\n"
-            "É quase sempre a MAIOR fonte de incerteza em h — tratada como\n"
-            "distribuição retangular: u(λ) = Δλ/√3."
-        )
-        self.input_u_r_frio.setToolTip(
-            "Incerteza da medida de resistência a frio (o erro do ohmímetro).\n"
-            "Propaga para R0 e daí para todas as temperaturas."
-        )
-        self.input_r_frio.setToolTip(
-            "Resistência do filamento medida frio, na temperatura ambiente.\n"
-            "O software converte para R0 (a 0 °C) automaticamente."
-        )
-        self.input_t_ambiente.setToolTip(
-            "Temperatura em que a resistência a frio foi medida.\n"
-            "Sem isso, R0 fica ~13% deslocado e enviesa todas as temperaturas."
-        )
-        self.input_r_cabos.setToolTip(
-            "Resistência dos cabos da medição a 2 fios, que entra somada à do\n"
-            "filamento. Deixe 0 se não souber; meça curto-circuitando as pontas."
-        )
-
-        # Mostra o R0 corrigido conforme o operador digita.
-        self.lbl_r0_corrigido = QLabel()
-        self.lbl_r0_corrigido.setStyleSheet("color: #64B5F6; font-size: 11px;")
-        for campo in (self.input_r_frio, self.input_t_ambiente,
-                      self.input_alpha, self.input_beta):
-            campo.textChanged.connect(self.atualizar_r0_corrigido)
-
-        form_params.addRow("Preset de coeficientes:", self.combo_preset)
-        form_params.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
-        form_params.addRow("Incerteza de R a frio (Ω):", self.input_u_r_frio)
-        form_params.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
-        form_params.addRow("", self.lbl_r0_corrigido)
-        form_params.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
-        form_params.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
-        form_params.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
-        form_params.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
-        form_params.addRow("Resistência dos cabos (Ω):", self.input_r_cabos)
-        group_params.setLayout(form_params)
-
-        self.atualizar_r0_corrigido()
-
-        group_sweep = QGroupBox("Varredura SCPI")
-        form_sweep = QFormLayout()
-        self.input_v_start = QLineEdit("1.0")
-        self.input_v_end = QLineEdit("10.0")
-        self.input_v_step = QLineEdit("0.5")
-        self.input_delay = QLineEdit("3000") # 3 segundos para estabilização térmica real
-        self.input_t_minima = QLineEdit(str(TEMPERATURA_MINIMA_PADRAO))
-        self.input_t_minima.setToolTip(
-            "Só entram na regressão os pontos acima desta temperatura.\n"
-            "Abaixo dela a fotocorrente é menor que o ruído do multímetro.\n"
-            "Varra a faixa que quiser: o CSV guarda tudo, o corte é só na conta."
-        )
-        form_sweep.addRow("Tensão Inicial (V):", self.input_v_start)
-        form_sweep.addRow("Tensão Final (V):", self.input_v_end)
-        form_sweep.addRow("Passo de Tensão (V):", self.input_v_step)
-        self.input_n_leituras = QLineEdit("1")
-        self.input_n_leituras.setToolTip(
-            "Quantas leituras da fotocorrente fazer em cada ponto.\n"
-            "Com N > 1 o software calcula a incerteza Tipo A (s/√N) do ponto.\n"
-            "Custa tempo: N leituras por tensão. Com 1, só há incerteza de datasheet."
-        )
-        form_sweep.addRow("Estabilização Térmica (ms):", self.input_delay)
-        form_sweep.addRow("Leituras por ponto (N):", self.input_n_leituras)
-        form_sweep.addRow("Temp. mínima p/ regressão (K):", self.input_t_minima)
-        group_sweep.setLayout(form_sweep)
+        # Todos os campos vêm do painel compartilhado (Fase 4): a aba de
+        # Simulação usa o mesmo componente, então não há mais duplicação.
+        self.painel = PainelParametros(modo="bancada")
+        layout.addWidget(self.painel, stretch=3)
 
         layout_btns = QVBoxLayout()
         self.btn_start = QPushButton("▶ Iniciar Experimento Físico")
         self.btn_start.setMinimumHeight(50)
         self.btn_start.setStyleSheet("font-weight: bold; background-color: #8b0000; color: white;")
         self.btn_start.clicked.connect(self.start_experiment)
-        
+
         self.btn_stop = QPushButton("⏹ Parar e Processar Experimento")
         self.btn_stop.setMinimumHeight(50)
         self.btn_stop.setStyleSheet("font-weight: bold; background-color: #d84315; color: white;")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_experiment)
-        
+
         layout_btns.addWidget(self.btn_start)
         layout_btns.addWidget(self.btn_stop)
         layout_btns.addStretch()
-        
-        layout.addWidget(group_params)
-        layout.addWidget(group_sweep)
-        layout.addLayout(layout_btns)
-
-    def aplicar_preset_filamento(self):
-        """Preenche α e β com o preset escolhido (A3)."""
-        preset = self.combo_preset.currentData()
-        if preset is None:
-            return
-        self.input_alpha.setText(str(preset.alpha))
-        self.input_beta.setText(str(preset.beta))
-        self.combo_preset.setToolTip(f"Fonte: {preset.fonte}\n\n{preset.observacao}")
-
-    def atualizar_r0_corrigido(self):
-        """Mostra ao vivo o R0 que sai da correção da Eq. 11 (A2)."""
-        try:
-            r0 = corrigir_r0_para_zero_celsius(
-                float(self.input_r_frio.text()),
-                float(self.input_t_ambiente.text()),
-                float(self.input_alpha.text()),
-                float(self.input_beta.text()),
-            )
-        except (ValueError, ZeroDivisionError):
-            self.lbl_r0_corrigido.setText("R0 a 0 °C: —  (verifique os valores)")
-            return
-        self.lbl_r0_corrigido.setText(
-            f"→ R0 a 0 °C = {r0:.4f} Ω   (é este o valor usado no cálculo)"
-        )
+        layout.addLayout(layout_btns, stretch=1)
 
     def build_results_tab(self):
         layout = QVBoxLayout(self.tab_results)
@@ -504,37 +419,13 @@ class TabExperiment(QWidget):
         self.scatter_linear.setData([], [])
         self.scatter_descartado.setData([], [])
         
-        alpha = float(self.input_alpha.text())
-        beta = float(self.input_beta.text())
-        t_ambiente = float(self.input_t_ambiente.text())
-        r_frio = float(self.input_r_frio.text())
-
         try:
-            # A2: a medida a frio é feita na temperatura ambiente; R0 é a 0 °C.
-            r0 = corrigir_r0_para_zero_celsius(r_frio, t_ambiente, alpha, beta)
+            params = self.painel.coletar()
         except ValueError as erro:
             QMessageBox.warning(self, "Parâmetro inválido", str(erro))
             self.btn_start.setEnabled(True)
             self.btn_stop.setEnabled(False)
             return
-
-        # Incerteza de R0: propaga a do ohmímetro e a da temperatura ambiente.
-        u_r0 = incerteza_r0_corrigido(
-            r_frio, t_ambiente, alpha, beta,
-            u_r_frio=float(self.input_u_r_frio.text()),
-            u_t_ambiente=INCERTEZA_TEMPERATURA_AMBIENTE)
-
-        params = {
-            'r0': r0, 'r_frio': r_frio, 't_ambiente': t_ambiente, 'u_r0': u_r0,
-            'u_r_frio': float(self.input_u_r_frio.text()),
-            'alpha': alpha, 'beta': beta, 'lam': float(self.input_lambda.text()),
-            'delta_lam': float(self.input_delta_lambda.text()),
-            'r_cabos': float(self.input_r_cabos.text()),
-            't_minima': float(self.input_t_minima.text()),
-            'n_leituras': int(float(self.input_n_leituras.text())),
-            'v_start': float(self.input_v_start.text()), 'v_end': float(self.input_v_end.text()),
-            'v_step': float(self.input_v_step.text()), 'delay': float(self.input_delay.text())
-        }
 
         self.params = params
 

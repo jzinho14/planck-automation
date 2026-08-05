@@ -994,6 +994,105 @@ captura da área de gráficos, gerada no momento da exportação e apagada em
 seguida.
 
 % =============================================================
+\section{Perfis e rastreabilidade}
+\label{sec:perfis}
+
+\subsection{O sistema de perfis}
+
+Quatro famílias de parâmetros vivem em JSONs editáveis dentro de
+\texttt{Software/profiles/}:
+
+\begin{center}
+\begin{tabular}{@{}p{3.6cm}p{10.8cm}@{}}
+\toprule
+\textbf{Arquivo} & \textbf{Conteúdo} \\
+\midrule
+\texttt{leds.json} & $\lambda \pm \Delta\lambda$ de cada sensor \\
+\texttt{filamentos.json} & coeficientes $\alpha$ e $\beta$ do tungstênio \\
+\texttt{instrumentos.json} & especificações de exatidão, que alimentam a teoria de erros \\
+\texttt{varreduras.json} & presets de faixa, passo, espera e leituras por ponto \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Três decisões governam o sistema:
+
+\begin{enumerate}
+  \item \textbf{Todo perfil de constante física carrega a sua fonte.} Um número
+        sem procedência é uma incerteza sistemática invisível. O campo é
+        obrigatório, e quando a origem é desconhecida isso fica escrito no
+        próprio perfil. Perfis de varredura são exceção: são escolha
+        operacional do experimentador, não valor a ser citado.
+
+  \item \textbf{O JSON manda, mas nunca derruba o software.} Arquivo ausente,
+        corrompido ou com campos faltando faz o carregador cair para os padrões
+        embutidos em \arqv{content/perfis.py} e registrar um aviso, exibido no
+        painel de parâmetros. Um laboratório não pode ficar sem coletar porque
+        alguém errou uma vírgula.
+
+  \item \textbf{$R_0$ não é perfil.} A resistência a frio é propriedade do
+        filamento específico que está na bancada, medida a cada montagem --- não
+        de um modelo tabelado. Continua sendo campo preenchido por experimento.
+\end{enumerate}
+
+Trocar de multímetro passa a ser editar \texttt{instrumentos.json}: as
+especificações são convertidas em \classe{EspecificacaoInstrumento} e entram
+direto na cadeia de incertezas descrita na seção~\ref{sec:erros}.
+
+\subsection{O painel de parâmetros compartilhado}
+
+Antes, os mesmos campos existiam duplicados nas abas de Simulação e de
+Bancada. Mudar um rótulo, um padrão ou uma unidade exigia lembrar dos dois
+lugares --- e eles foram divergindo.
+
+Agora há um componente só, \arqv{ui/components/painel\_parametros.py}, que cada
+aba instancia no seu modo:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Modo} & \textbf{O que muda} \\
+\midrule
+\texttt{bancada} & inclui resistência de cabos e leituras por ponto \\
+\texttt{simulacao} & inclui fator de ruído, sem os campos de hardware \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+O método \texttt{coletar()} devolve o dicionário de parâmetros já com $R_0$
+corrigido e sua incerteza propagada, e é o único ponto onde os campos viram
+números.
+
+\subsection{Metadados por coleta}
+
+Cada coleta produz dois arquivos irmãos:
+
+\begin{quote}\ttfamily
+data\_backup/exp\_planck\_AAAAMMDD\_HHMMSS.csv \quad -- as medidas\\
+data\_backup/exp\_planck\_AAAAMMDD\_HHMMSS.json \quad -- como foram obtidas
+\end{quote}
+
+O JSON registra os perfis usados, a resistência medida a frio \emph{com a
+temperatura em que foi medida}, o $R_0$ corrigido, os coeficientes,
+$\lambda \pm \Delta\lambda$, todos os parâmetros de varredura, o modo (bancada
+real ou demonstração), o ambiente de execução e, ao final, o resultado completo
+com incerteza, diagnósticos do ajuste e orçamento.
+
+É gravado \textbf{duas vezes}: na abertura da coleta --- para que os parâmetros
+sobrevivam a uma queda de energia no meio --- e no encerramento, acrescentando
+os resultados.
+
+\begin{nota}
+\textbf{Por que isto importa.} O CSV sempre guardou as medidas, mas não com
+\emph{quais parâmetros} foram processadas. O custo disso foi concreto: para
+calibrar a bancada simulada foi preciso \emph{deduzir}, a partir dos próprios
+números, que as coletas históricas haviam usado $R_0 \approx 0{,}42~\Omega$.
+
+Os 52 CSVs antigos seguem sem metadados --- para eles aquele valor continua
+sendo uma dedução, não um registro.
+\end{nota}
+
+% =============================================================
 \section{Camada de conteúdo}
 
 \arqv{content/referencias.py} guarda a lista de referências como dados tipados,

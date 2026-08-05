@@ -1,0 +1,32 @@
+[
+  {
+    "nome": "DMM4050 — 100 µA, 1 ano",
+    "grandeza": "fotocorrente",
+    "pct_leitura": 0.0005,
+    "termo_fixo": 2.5e-08,
+    "unidade": "A",
+    "fonte": "Tektronix DMM4050/DMM4040 Datasheet, DC Current",
+    "distribuicao": "retangular",
+    "observacao": "0,05% da leitura + 0,025% da faixa de 100 µA."
+  },
+  {
+    "nome": "PWS4323 — readback de tensão",
+    "grandeza": "tensao_fonte",
+    "pct_leitura": 0.0002,
+    "termo_fixo": 0.003,
+    "unidade": "V",
+    "fonte": "Tektronix 077-0480-00, Tabela 1",
+    "distribuicao": "retangular",
+    "observacao": ""
+  },
+  {
+    "nome": "PWS4323 — readback de corrente",
+    "grandeza": "corrente_fonte",
+    "pct_leitura": 0.0005,
+    "termo_fixo": 0.002,
+    "unidade": "A",
+    "fonte": "Tektronix 077-0480-00, Tabela 1",
+    "distribuicao": "retangular",
+    "observacao": ""
+  }
+]

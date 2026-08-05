@@ -56,7 +56,11 @@ from utils.math_models import C, K_B, H_REF
 T_AMBIENTE = 298.15          # K (25 °C)
 
 # Razão k_cond/k_rad do ajuste sobre os CSVs reais (unidade: K³).
-RAZAO_COND_RAD = 1.32754e8
+#
+# Procedência: produzido por `Tests/calibrar_mock_com_dados_reais.py`, que
+# refaz o ajuste de mínimos quadrados sobre os 1127 pontos úteis de
+# `data_backup/`. Rode-o de novo se novas coletas forem acrescentadas.
+RAZAO_COND_RAD = 1.32760e8
 
 # Âncora de calibração: topo medido na bancada real.
 ANCORA_TENSAO = 12.0         # V

@@ -65,17 +65,21 @@ Software/
 ├── main.py                      # QApplication + Fusion + tema QSS escuro
 ├── content/
 │   ├── referencias.py           # dataclass Referencia + lista REFERENCIAS (dado, não código)
-│   └── filamentos.py            # presets de α/β com fonte citada (A3; vira JSON na Fase 4)
+│   └── perfis.py                # 4 famílias de perfis + carga tolerante a falha
+├── profiles/                    # leds.json, filamentos.json, instrumentos.json,
+│                                #   varreduras.json — editáveis sem tocar em código
 ├── core/
 │   ├── hardware_manager.py      # Drivers SCPI (PWS4323, DMM4050), ScannerThread,
 │   │                            #   ValidatorThread, HardwareManager(QObject),
 │   │                            #   obter_drivers()/modo_demonstracao_ativo()
-│   └── mock_hardware.py         # BancadaSimulada + Mock*_Driver (mesma interface)
+│   ├── mock_hardware.py         # BancadaSimulada + Mock*_Driver (mesma interface)
+│   └── metadados.py             # JSON irmão de cada CSV (P5 — rastreabilidade)
 ├── ui/
 │   ├── main_window.py           # QTabWidget com 4 abas
 │   ├── theme.py                 # DARK_THEME (string QSS)
 │   ├── components/
 │   │   ├── connection_panel.py  # Scan/validação VISA, persiste em QSettings("Senac","PlanckAutomation")
+│   │   ├── painel_parametros.py # ← COMPARTILHADO pelas duas abas (fim da duplicação)
 │   │   └── export_dialog.py     # Metadados do relatório PDF
 │   └── tabs/
 │       ├── tab_simulation.py    # SimulationWorker(QThread) + UI de simulação
@@ -96,6 +100,9 @@ Tests/test_connection.py         # Scan VISA standalone (espelha o ScannerThread
 Tests/test_mock_hardware.py      # 17 checagens da bancada simulada (roda sem hardware)
 Tests/test_math_models.py        # 25 checagens do modelo fisico (A2, A5, regressao)
 Tests/test_error_models.py       # 40 checagens da teoria de erros (Tipo A/B, ajuste, propagacao)
+Tests/test_perfis_metadados.py   # 40 checagens de perfis e metadados por coleta
+Tests/test_interface.py          # ponta a ponta pela UI real, sem hardware
+Tests/calibrar_mock_com_dados_reais.py  # procedencia das constantes do mock (nao e teste)
 Markdowns/project_description.md # Especificação original (as abas Análise e Comparação ainda faltam)
 Docs/                            # Artigo de referência + datasheets Tektronix
 ```
@@ -392,7 +399,21 @@ profiles/
    - **Toda a teoria está no `manual_tecnico.tex` §"Teoria de erros"** e nas
      hipóteses H1–H6 do cabeçalho de `error_models.py` — para revisão do
      orientador (PENDENCIAS.txt, P2).
-5. **Fase 4 — Perfis modulares (§8)** e página Parâmetros unificada.
+5. ~~**Fase 4 — Perfis modulares**~~ ✅ **CONCLUÍDA.**
+   - `profiles/*.json` com quatro famílias (LEDs, filamentos, instrumentos,
+     varreduras). Todo perfil de constante física carrega a sua **fonte**.
+   - Carga **tolerante a falha**: JSON ausente, corrompido ou com campos
+     faltando cai para os padrões embutidos e registra aviso na UI. Um
+     laboratório não pode parar por causa de uma vírgula num JSON.
+   - `ui/components/painel_parametros.py`: **um componente para as duas abas**
+     (modo "bancada"/"simulacao"), no lugar dos campos duplicados. Sobrevive à
+     migração da Fase 5 — só muda quem o hospeda.
+   - Trocar de multímetro passa a ser editar `instrumentos.json`: as specs
+     alimentam `error_models` direto.
+   - **P5 resolvido:** `core/metadados.py` grava um JSON irmão de cada CSV,
+     com perfis, R0 medido *e* corrigido, varredura, modo e o resultado com
+     incerteza. Gravado na abertura E no encerramento.
+   - Botão "salvar varredura atual como perfil" no painel.
 6. **Fase 5 — Nova interface (§7):** migrar para `FluentWindow` + QFluentWidgets,
    uma página por vez (começar pela Conexão, que é a mais simples), mantendo as
    telas antigas funcionais durante a transição.

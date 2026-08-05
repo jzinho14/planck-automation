@@ -1,0 +1,42 @@
+[
+  {
+    "nome": "Bancada — padrão",
+    "v_start": 1.0,
+    "v_end": 10.0,
+    "v_step": 0.5,
+    "delay_ms": 3000.0,
+    "n_leituras": 1,
+    "t_minima": 1800.0,
+    "observacao": "Faixa conservadora, uma leitura por ponto."
+  },
+  {
+    "nome": "Bancada — completa 0–12 V",
+    "v_start": 0.0,
+    "v_end": 12.0,
+    "v_step": 0.25,
+    "delay_ms": 3000.0,
+    "n_leituras": 1,
+    "t_minima": 1800.0,
+    "observacao": "Registra o filamento inteiro; o corte de 1800 K protege a regressão dos pontos frios."
+  },
+  {
+    "nome": "Bancada — alta precisão",
+    "v_start": 6.0,
+    "v_end": 12.0,
+    "v_step": 0.2,
+    "delay_ms": 4000.0,
+    "n_leituras": 5,
+    "t_minima": 1800.0,
+    "observacao": "Só a região de Wien, com 5 leituras por ponto para obter incerteza Tipo A. Demora bem mais."
+  },
+  {
+    "nome": "Simulação — rápida",
+    "v_start": 0.5,
+    "v_end": 12.0,
+    "v_step": 0.1,
+    "delay_ms": 50.0,
+    "n_leituras": 1,
+    "t_minima": 1800.0,
+    "observacao": "Para a aba de simulação, sem espera térmica real."
+  }
+]

@@ -12,12 +12,10 @@ from utils.math_models import H_REF
 from ui.components.export_dialog import ExportDialog
 
 
-from content.filamentos import PRESETS_FILAMENTO, PRESET_PADRAO
-from utils.math_models import (simulate_experiment_data,
-                               corrigir_r0_para_zero_celsius, selecionar_pontos_validos,
-                               TEMPERATURA_AMBIENTE_PADRAO, TEMPERATURA_MINIMA_PADRAO)
-from utils.error_models import (analisar_experimento, incerteza_r0_corrigido,
-                                DELTA_LAMBDA_PADRAO_NM, INCERTEZA_TEMPERATURA_AMBIENTE)
+from ui.components.painel_parametros import PainelParametros
+from content.perfis import especificacoes_de_instrumentos
+from utils.math_models import simulate_experiment_data, selecionar_pontos_validos
+from utils.error_models import analisar_experimento
 
 # --- THREAD DE SIMULAÇÃO EM TEMPO REAL ---
 class SimulationWorker(QThread):
@@ -64,7 +62,13 @@ class SimulationWorker(QThread):
                     beta=self.params['beta'], lambda_nm=self.params['lam'],
                     delta_lambda_nm=self.params['delta_lam'],
                     u_r0=self.params['u_r0'],
-                    t_minima=self.params['t_minima'])
+                    t_minima=self.params['t_minima'],
+                    **{chave: espec for grandeza, chave in
+                       (("fotocorrente", "spec_fotocorrente"),
+                        ("tensao_fonte", "spec_tensao"),
+                        ("corrente_fonte", "spec_corrente"))
+                       for espec in [especificacoes_de_instrumentos().get(grandeza)]
+                       if espec is not None})
             except ValueError:
                 return
             self.finished_sim.emit(resultado)
@@ -102,109 +106,27 @@ class TabSimulation(QWidget):
 
     def build_config_tab(self):
         layout = QHBoxLayout(self.tab_config)
-        
-        # Lado Esquerdo: Parâmetros Físicos
-        group_params = QGroupBox("Constantes do Filamento e Sensor")
-        form_params = QFormLayout()
 
-        self.combo_preset = QComboBox()
-        for preset in PRESETS_FILAMENTO:
-            self.combo_preset.addItem(preset.rotulo, preset)
-        self.combo_preset.currentIndexChanged.connect(self.aplicar_preset_filamento)
+        # Mesmo componente da aba de bancada (Fase 4), em modo simulação.
+        self.painel = PainelParametros(modo="simulacao")
+        layout.addWidget(self.painel, stretch=3)
 
-        self.input_r_frio = QLineEdit("1.2")
-        self.input_t_ambiente = QLineEdit(str(TEMPERATURA_AMBIENTE_PADRAO))
-        self.input_alpha = QLineEdit(str(PRESET_PADRAO.alpha))
-        self.input_beta = QLineEdit(str(PRESET_PADRAO.beta))
-        self.input_lambda = QLineEdit("590")
-        self.input_delta_lambda = QLineEdit(str(DELTA_LAMBDA_PADRAO_NM))
-        self.input_u_r_frio = QLineEdit("0.01")
-        self.input_noise = QLineEdit("0.05")
-
-        self.lbl_r0_corrigido = QLabel()
-        self.lbl_r0_corrigido.setStyleSheet("color: #64B5F6; font-size: 11px;")
-        for campo in (self.input_r_frio, self.input_t_ambiente,
-                      self.input_alpha, self.input_beta):
-            campo.textChanged.connect(self.atualizar_r0_corrigido)
-
-        form_params.addRow("Preset de coeficientes:", self.combo_preset)
-        form_params.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
-        form_params.addRow("Incerteza de R a frio (Ω):", self.input_u_r_frio)
-        form_params.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
-        form_params.addRow("", self.lbl_r0_corrigido)
-        form_params.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
-        form_params.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
-        form_params.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
-        form_params.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
-        form_params.addRow("Fator de Ruído (0 a 1):", self.input_noise)
-        group_params.setLayout(form_params)
-
-        self.atualizar_r0_corrigido()
-
-        # Lado Direito: Parâmetros de Varredura (Setup do Equipamento)
-        group_sweep = QGroupBox("Parâmetros de Varredura (Simulação VISA)")
-        form_sweep = QFormLayout()
-        self.input_v_start = QLineEdit("0.5")
-        self.input_v_end = QLineEdit("12.0")
-        self.input_v_step = QLineEdit("0.1")
-        self.input_delay = QLineEdit("50") # 50 ms entre pontos
-        self.input_t_minima = QLineEdit(str(TEMPERATURA_MINIMA_PADRAO))
-        self.input_t_minima.setToolTip(
-            "Só entram na regressão os pontos acima desta temperatura.\n"
-            "Zero desliga o corte e usa todos os pontos."
-        )
-        form_sweep.addRow("Tensão Inicial (V):", self.input_v_start)
-        form_sweep.addRow("Tensão Final (V):", self.input_v_end)
-        form_sweep.addRow("Passo de Tensão (V):", self.input_v_step)
-        form_sweep.addRow("Intervalo de Captura (ms):", self.input_delay)
-        form_sweep.addRow("Temp. mínima p/ regressão (K):", self.input_t_minima)
-        group_sweep.setLayout(form_sweep)
-
-        # Botões
         layout_btns = QVBoxLayout()
         self.btn_simulate = QPushButton("▶ Iniciar Coleta Simulada")
         self.btn_simulate.setMinimumHeight(50)
         self.btn_simulate.setStyleSheet("font-weight: bold; background-color: #2e7d32; color: white;")
         self.btn_simulate.clicked.connect(self.start_simulation)
-        
+
         self.btn_stop = QPushButton("⏹ Parar Coleta")
         self.btn_stop.setMinimumHeight(50)
         self.btn_stop.setStyleSheet("font-weight: bold; background-color: #c62828; color: white;")
         self.btn_stop.setEnabled(False)
         self.btn_stop.clicked.connect(self.stop_simulation)
-        
+
         layout_btns.addWidget(self.btn_simulate)
         layout_btns.addWidget(self.btn_stop)
         layout_btns.addStretch()
-        
-        layout.addWidget(group_params)
-        layout.addWidget(group_sweep)
-        layout.addLayout(layout_btns)
-
-    def aplicar_preset_filamento(self):
-        """Preenche α e β com o preset escolhido (A3)."""
-        preset = self.combo_preset.currentData()
-        if preset is None:
-            return
-        self.input_alpha.setText(str(preset.alpha))
-        self.input_beta.setText(str(preset.beta))
-        self.combo_preset.setToolTip(f"Fonte: {preset.fonte}\n\n{preset.observacao}")
-
-    def atualizar_r0_corrigido(self):
-        """Mostra ao vivo o R0 que sai da correção da Eq. 11 (A2)."""
-        try:
-            r0 = corrigir_r0_para_zero_celsius(
-                float(self.input_r_frio.text()),
-                float(self.input_t_ambiente.text()),
-                float(self.input_alpha.text()),
-                float(self.input_beta.text()),
-            )
-        except (ValueError, ZeroDivisionError):
-            self.lbl_r0_corrigido.setText("R0 a 0 °C: —  (verifique os valores)")
-            return
-        self.lbl_r0_corrigido.setText(
-            f"→ R0 a 0 °C = {r0:.4f} Ω   (é este o valor usado no cálculo)"
-        )
+        layout.addLayout(layout_btns, stretch=1)
 
     def build_results_tab(self):
         layout = QVBoxLayout(self.tab_results)
@@ -284,38 +206,13 @@ class TabSimulation(QWidget):
         self.lbl_h_result.setText("Coletando Dados...")
         self.lbl_h_result.setStyleSheet("background-color: #1e1e1e; color: #00ff00; border-radius: 5px; padding: 10px;")
         
-        # Dicionário de parâmetros
-        alpha = float(self.input_alpha.text())
-        beta = float(self.input_beta.text())
         try:
-            # A2: mesma correção da bancada, para que "resistência a frio"
-            # signifique a mesma coisa nas duas abas.
-            r0 = corrigir_r0_para_zero_celsius(
-                float(self.input_r_frio.text()),
-                float(self.input_t_ambiente.text()), alpha, beta)
+            params = self.painel.coletar()
         except ValueError as erro:
             QMessageBox.warning(self, "Parâmetro inválido", str(erro))
             self.btn_simulate.setEnabled(True)
             self.btn_stop.setEnabled(False)
             return
-
-        params = {
-            'r0': r0,
-            'alpha': alpha,
-            'beta': beta,
-            'lam': float(self.input_lambda.text()),
-            'delta_lam': float(self.input_delta_lambda.text()),
-            'u_r0': incerteza_r0_corrigido(
-                float(self.input_r_frio.text()), float(self.input_t_ambiente.text()),
-                alpha, beta, u_r_frio=float(self.input_u_r_frio.text()),
-                u_t_ambiente=INCERTEZA_TEMPERATURA_AMBIENTE),
-            'noise': float(self.input_noise.text()),
-            't_minima': float(self.input_t_minima.text()),
-            'v_start': float(self.input_v_start.text()),
-            'v_end': float(self.input_v_end.text()),
-            'v_step': float(self.input_v_step.text()),
-            'delay': float(self.input_delay.text())
-        }
         self.params = params
 
         # Mesmo vetor de tensões que o SimulationWorker vai percorrer — ver B7.
@@ -382,13 +279,13 @@ class TabSimulation(QWidget):
         n_usados = int(np.sum(usados))
 
         self.last_params = {
-            'Resistência a frio medida': f"{self.input_r_frio.text()} Ω a {self.input_t_ambiente.text()} °C",
+            'Resistência a frio medida': f"{self.params['r_frio']} Ω a {self.params['t_ambiente']} °C",
             'R0 corrigido (0 °C)': f"{self.params['r0']:.4f} Ω",
-            'Coef. Linear (α)': f"{self.input_alpha.text()} K⁻¹",
-            'Coef. Quadrático (β)': f"{self.input_beta.text()} K⁻²",
-            'Comprimento de onda (λ)': f"{self.input_lambda.text()} ± {self.input_delta_lambda.text()} nm",
-            'Varredura (Tensão)': f"De {self.input_v_start.text()} V a {self.input_v_end.text()} V (Passo: {self.input_v_step.text()} V)",
-            'Fator de Ruído Simulado': self.input_noise.text(),
+            'Coef. Linear (α)': f"{self.params['alpha']:g} K⁻¹",
+            'Coef. Quadrático (β)': f"{self.params['beta']:g} K⁻²",
+            'Comprimento de onda (λ)': f"{self.params['lam']:g} ± {self.params['delta_lam']:g} nm",
+            'Varredura (Tensão)': f"De {self.params['v_start']:g} V a {self.params['v_end']:g} V (Passo: {self.params['v_step']:g} V)",
+            'Fator de Ruído Simulado': f"{self.params['noise']:g}",
             'Incerteza de R0 propagada': f"{self.params['u_r0']:.5f} Ω",
             'Temp. mínima na regressão': f"{self.params['t_minima']} K",
             'Pontos usados na regressão': f"{n_usados} de {len(self.data_t)}"

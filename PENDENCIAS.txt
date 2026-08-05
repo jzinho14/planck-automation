@@ -12,7 +12,7 @@ Formato de cada item:
   IMPACTO SE MUDAR - o que acontece ao alterar
   COMO ALTERAR    - onde mexer
 
-Ultima atualizacao: 05/08/2026
+Ultima atualizacao: 05/08/2026 (apos a Fase 4)
 
 ================================================================================
 P1 - [A3] Coeficientes de resistividade do tungstenio: qual par adotar?
@@ -55,10 +55,14 @@ IMPACTO SE MUDAR
   Nao e desprezivel. Vale reprocessar um CSV historico com os dois pares e
   comparar antes de decidir.
 
-COMO ALTERAR
-  Software/content/filamentos.py -- a ordem da lista PRESETS_FILAMENTO define
-  o padrao (PRESET_PADRAO = PRESETS_FILAMENTO[0]). Basta reordenar.
-  Preencher tambem o campo "fonte" do preset escolhido.
+COMO ALTERAR  (mudou na Fase 4)
+  Software/profiles/filamentos.json -- e um arquivo de texto comum, editavel
+  sem mexer em codigo. O primeiro da lista e o que aparece selecionado por
+  padrao no painel de parametros; basta reordenar.
+  Preencher tambem o campo "fonte" do perfil escolhido.
+
+  Os padroes embutidos (rede de seguranca, usados se o JSON sumir ou quebrar)
+  ficam em Software/content/perfis.py, no dicionario PADROES.
 
 ================================================================================
 P2 - [Fase 3] Teoria de erros: revisao pelo orientador
@@ -259,22 +263,34 @@ COMO ALTERAR
 ================================================================================
 P5 - Metadados do experimento em JSON
 ================================================================================
-STATUS: ABERTO - previsto para a Fase 4
+STATUS: RESOLVIDO na Fase 4
 Origem: CLAUDE.md secao 8; promessa da especificacao original nunca cumprida.
 
-SITUACAO ATUAL
-  Cada coleta gera so o CSV. Os parametros usados (R0, coeficientes, lambda,
-  faixa de varredura, corte de temperatura) NAO sao gravados junto -- ficam so
-  no relatorio PDF, se ele for gerado.
+O QUE ERA
+  Cada coleta gerava so o CSV. Os parametros usados (R0, coeficientes, lambda,
+  faixa de varredura) nao eram gravados junto. Um CSV antigo nao dizia com que
+  parametros havia sido processado -- foi por isso que precisei DEDUZIR, a
+  partir dos proprios numeros, que as coletas historicas usaram R0 = 0.42 ohm.
 
-  Consequencia pratica: um CSV antigo nao diz com quais parametros foi
-  processado. Foi exatamente por isso que precisei DEDUZIR, a partir dos
-  numeros, que as coletas historicas usaram R0 = 0.42 ohm.
+COMO FICOU
+  Cada coleta produz agora dois arquivos irmaos:
+      data_backup/exp_planck_AAAAMMDD_HHMMSS.csv    <- as medidas
+      data_backup/exp_planck_AAAAMMDD_HHMMSS.json   <- como foram obtidas
 
-O QUE VERIFICAR
-  Nada a decidir agora. Registrado para nao se perder: a partir da Fase 4,
-  cada coleta grava um .json ao lado do .csv com todos os parametros e
-  resultados, e o problema acima deixa de existir para dados novos.
+  O JSON registra: perfis usados (LED, filamento, varredura), a resistencia
+  medida a frio COM a temperatura em que foi medida, o R0 corrigido, os
+  coeficientes, lambda +/- delta lambda, todos os parametros de varredura, o
+  modo (bancada real ou demonstracao), o ambiente de execucao, e ao final o
+  resultado com incerteza, diagnosticos do ajuste e orcamento completo.
+
+  E gravado DUAS vezes: na abertura da coleta (para sobreviver a uma queda de
+  energia no meio) e no encerramento, acrescentando os resultados.
+
+ATENCAO
+  Isso resolve o problema para dados NOVOS. Os 52 CSVs historicos continuam
+  sem metadados -- para eles, o R0 = 0.42 ohm continua sendo uma deducao, nao
+  um registro. Se voce tiver anotacao de laboratorio daquelas coletas, vale
+  criar os JSONs correspondentes a mao.
 
 ================================================================================
 FIM

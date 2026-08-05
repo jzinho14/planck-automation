@@ -63,13 +63,19 @@ COMO ALTERAR
 ================================================================================
 P2 - [Fase 3] Teoria de erros: revisao pelo orientador
 ================================================================================
-STATUS: ABERTO - aguardando revisao academica
+STATUS: ABERTO - IMPLEMENTADO, aguardando revisao academica
 Origem: pedido do usuario, 05/08/2026.
 
 SITUACAO ATUAL
-  A Fase 3 (teoria de erros / propagacao de incertezas) sera implementada com
-  TODA a teoria e todos os calculos explicitos e rastreaveis, justamente para
-  poder ser apresentada e criticada.
+  A Fase 3 esta IMPLEMENTADA em Software/utils/error_models.py, com a teoria
+  deduzida em Documentacao/manual_tecnico.tex, secao "Teoria de erros"
+  (equacoes numeradas). Os testes em Tests/test_error_models.py conferem a
+  matematica contra casos de resposta conhecida - inclusive as quatro
+  derivadas parciais contra derivacao numerica.
+
+  O software ja reporta, por exemplo:
+      h = (6,50 +/- 0,52) x 10^-34 J.s (k=2)
+  com orcamento de incertezas e veredicto de compatibilidade com a CODATA.
 
 POR QUE ESTA ASSIM
   O usuario vai discutir a abordagem com o orientador antes de considera-la
@@ -81,10 +87,11 @@ O QUE VERIFICAR (levar ao orientador)
   Cada escolha abaixo e uma decisao que pode ser contestada:
 
   1. Classificacao GUM Tipo A / Tipo B
-     - Tipo A (estatistico): repeticao de leituras por ponto.
-     - Tipo B (instrumental): vem do datasheet.
-     Verificar se o orientador aceita essa separacao e se quer N repeticoes
-     por ponto (hoje o software mede uma vez por tensao).
+     - Tipo A (estatistico): repeticao de leituras por ponto. IMPLEMENTADO:
+       campo "Leituras por ponto (N)" na aba de experimento; com N>1 o
+       software calcula s/raiz(N) e grava o desvio no CSV. Padrao N=1.
+     - Tipo B (instrumental): vem do datasheet. IMPLEMENTADO.
+     Verificar: o orientador aceita a separacao? Qual N ele recomenda?
 
   2. Distribuicao assumida para as especificacoes de datasheet
      Especificacao do tipo +/-(% da leitura + % da faixa) tratada como limite
@@ -99,11 +106,29 @@ O QUE VERIFICAR (levar ao orientador)
      e a incerteza DOMINANTE em h (~3-5%), entao a escolha importa muito.
 
   4. Regressao ponderada
-     Previsto: minimos quadrados ponderados (WLS) com peso 1/u_y^2, ou ODR
-     (scipy.odr) que aceita erro em x E em y -- porque u_x = u_T/T^2 nao e
-     desprezivel.
-     Verificar: WLS simples basta, ou o orientador exige ODR? Como reportar o
-     chi-quadrado reduzido?
+     Implementado: minimos quadrados ponderados com peso 1/u_y^2, estendido
+     pelo metodo da VARIANCIA EFETIVA (Orear 1982; equivalente ao de York 1968
+     para retas) para contemplar erro tambem em x, ja que u_x = u_T/T^2 nao e
+     desprezivel. O peso vira 1/(u_y^2 + m^2*u_x^2) e itera-se sobre m.
+
+     NOTA: a scipy.odr, sugerida no plano original, esta DEPRECADA desde a
+     scipy 1.17 e sera removida na 1.19. Por isso o ajuste foi implementado em
+     numpy puro (~20 linhas, auditaveis, sem dependencia nova) em vez de
+     chamar uma rotina pronta.
+
+     Verificar: o metodo da variancia efetiva basta, ou o orientador exige ODR
+     completa (que ajusta tambem a variavel latente de cada ponto)? A troca
+     ficaria restrita a uma unica funcao.
+
+  4b. Interpretacao do chi-quadrado reduzido
+     Ele fica sistematicamente ABAIXO de 1 neste experimento (~0,1), e isso e
+     esperado: a incerteza da fotocorrente vem de um LIMITE de datasheet
+     tratado como retangular, e o ruido real e menor que o pior caso garantido
+     pelo fabricante. O chi-quadrado so tenderia a 1 se a incerteza declarada
+     fosse o desvio padrao verdadeiro do processo aleatorio.
+     Verificar: o orientador aceita essa leitura? Ele preferiria estimar a
+     incerteza da fotocorrente pela repeticao (Tipo A) em vez do datasheet,
+     justamente para que o chi-quadrado volte a ser diagnostico absoluto?
 
   5. Fator de abrangencia k
      Previsto: k = 2, aproximadamente 95% de confianca, reportando
@@ -112,9 +137,40 @@ O QUE VERIFICAR (levar ao orientador)
      (Welch-Satterthwaite)? O segundo e mais rigoroso e mais trabalhoso.
 
   6. Correlacoes ignoradas
-     A propagacao prevista assume variaveis INDEPENDENTES. Na pratica V e i
-     vem do mesmo instrumento e podem ser correlacionadas.
+     A propagacao assume variaveis INDEPENDENTES. Na pratica V e i vem do
+     mesmo instrumento e podem ser correlacionadas.
      Verificar: e aceitavel ignorar? Se nao, precisa de matriz de covariancia.
+
+  6b. ALEATORIO x SISTEMATICO - achado durante a implementacao, NAO previsto
+     Este ponto nao estava na lista original e merece atencao especial, porque
+     foi um erro que a primeira versao cometeu e que so apareceu ao olhar o
+     chi-quadrado.
+
+     O problema: R0, alpha e beta sao os MESMOS para toda a varredura. Errar
+     R0 desloca todas as temperaturas na mesma direcao - nao espalha os
+     pontos, translada a nuvem inteira. Colocar u_R0 no peso individual de
+     cada ponto e dizer ao ajuste que cada ponto flutua sozinho tanto quanto o
+     conjunto se desloca junto. Isso infla os pesos e derruba o chi-quadrado
+     reduzido artificialmente (medimos 0,035 antes da correcao contra 0,101
+     depois; e u_m caiu de 1099 para 615).
+
+     Como esta agora: as incertezas foram separadas em
+       - ALEATORIAS (entram no peso do ponto): leitura de V e i, fotocorrente;
+       - SISTEMATICAS (propagadas ao final, por sensibilidade): R0, alpha,
+         beta, lambda.
+     Para cada sistematica o software refaz o ajuste com o parametro deslocado
+     de +u, mantendo a mesma selecao de pontos, e mede o quanto h se move.
+
+     Verificar: o orientador concorda com essa separacao? Ele consideraria
+     alguma outra grandeza sistematica? E aceita a sensibilidade numerica no
+     lugar de uma derivada analitica?
+
+  6c. Especificacao de datasheet tratada como puramente aleatoria
+     Rigorosamente, a exatidao declarada pelo fabricante mistura uma parte
+     sistematica (offset de calibracao, igual para toda a varredura) com uma
+     aleatoria (ruido de leitura). Separa-las exigiria informacao que o
+     datasheet nao fornece, entao tudo foi tratado como aleatorio por ponto.
+     Verificar: aceitavel? Ha pratica consagrada para essa divisao?
 
   7. Erros sistematicos nao incluidos na barra de incerteza
      Emissividade do tungstenio (corpo cinza, nao negro), reflexoes na
@@ -127,13 +183,24 @@ O QUE VERIFICAR (levar ao orientador)
      SI). Verificar se o orientador quer manter esse enquadramento ou se
      prefere reportar so o valor medido com sua incerteza, sem "erro".
 
-ONDE ESTARA A TEORIA
-  - Software/utils/error_models.py -- implementacao, com a formula de cada
-    passo em comentario/docstring.
-  - Documentacao/manual_tecnico.tex -- deducao completa da cadeia de
-    propagacao, com as equacoes numeradas.
-  - A UI mostrara um "Orcamento de incertezas": a contribuicao de cada fonte
-    em %, para ver de imediato quem domina.
+ONDE ESTA A TEORIA
+  - Software/utils/error_models.py -- implementacao. O cabecalho do modulo tem
+    a cadeia inteira em equacoes numeradas (E1 a E22) e a lista de hipoteses
+    assumidas (H1 a H6).
+  - Documentacao/manual_tecnico.tex, secao "Teoria de erros" -- deducao
+    completa com equacoes numeradas, incluindo as quatro derivadas parciais da
+    temperatura e o metodo da variancia efetiva.
+  - Tests/test_error_models.py -- 40 checagens, entre elas a conferencia das
+    derivadas analiticas contra derivacao numerica e do ajuste ponderado
+    contra formulas fechadas conhecidas.
+  - A UI mostra o orcamento resumido na barra de status; o relatorio PDF traz
+    a tabela completa. O painel visual definitivo vem na Fase 5, para nao ser
+    construido duas vezes.
+
+RESULTADO TIPICO HOJE (bancada simulada, varredura de 0 a 12 V)
+  h = (6,50 +/- 0,52) x 10^-34 J.s (k=2)   -- compativel com a CODATA
+  Orcamento: lambda 53% | inclinacao 41% | R0 6%
+  A largura espectral do LED domina, como o artigo previa.
 
 IMPACTO SE MUDAR
   Alto na apresentacao do resultado, NULO na coleta. A cadeia de propagacao e

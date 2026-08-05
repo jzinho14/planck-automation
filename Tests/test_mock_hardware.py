@@ -137,10 +137,20 @@ checa(r2 > 0.99, "a regressão na região de Wien é linear", f"R²={r2:.4f}")
 # encurtar a varredura: coleta-se de 0,5 a 12 V, regride-se só o que informa.
 T, L = varredura(0.5, 12.0, 0.5)
 
-h_sem, erro_sem, _, _, r2_sem = calculate_planck_constant(T, L, 590.0, t_minima=0.0)
+# Reproduzindo o estado ANTERIOR às correções: sem corte de temperatura e com
+# o limiar de corrente antigo, de 1 nA — menor que o piso de 4,5 nA do
+# multímetro, e portanto incapaz de descartar seja o que for.
+h_sem, erro_sem, _, _, r2_sem = calculate_planck_constant(
+    T, L, 590.0, t_minima=0.0, limiar_corrente=1e-9)
 checa(erro_sem > 20.0,
-      "sem corte, a varredura completa continua errando feio (o defeito existe)",
+      "reproduzindo o estado antigo (limiar 1 nA, sem corte), erra feio",
       f"h={h_sem:.4e}, erro {erro_sem:.1f}%, R²={r2_sem:.4f}")
+
+# Só o limiar derivado do datasheet (B6), sem corte de temperatura, já resolve.
+h_b6, erro_b6, _, _, r2_b6 = calculate_planck_constant(T, L, 590.0, t_minima=0.0)
+checa(erro_b6 < 10.0,
+      "só o limiar derivado (B6) já recupera a varredura completa",
+      f"h={h_b6:.4e}, erro {erro_b6:.1f}%, R²={r2_b6:.4f}")
 
 h_com, erro_com, _, _, r2_com = calculate_planck_constant(
     T, L, 590.0, t_minima=TEMPERATURA_MINIMA_PADRAO)

@@ -504,6 +504,250 @@ simulada (seção~\ref{sec:mock}), que resolve o balanço de energia de verdade.
 \end{nota}
 
 % =============================================================
+\section{Teoria de erros}
+\label{sec:erros}
+
+\begin{nota}
+\textbf{Esta seção está sujeita a revisão acadêmica.} As escolhas de modelagem
+abaixo estão explicitadas justamente para poderem ser contestadas. A lista de
+pontos a verificar está em \texttt{PENDENCIAS.txt}, item P2. Implementação em
+\arqv{utils/error\_models.py}.
+\end{nota}
+
+\subsection{Vocabulário (GUM)}
+
+\begin{description}[style=nextline,leftmargin=0.6cm]
+  \item[Incerteza Tipo A] Estimada por meios estatísticos, a partir da
+    repetição da medida. Para $N$ leituras de desvio padrão amostral $s$:
+    \begin{equation}
+      u_A = \frac{s}{\sqrt{N}}
+      \label{eq:tipoA}
+    \end{equation}
+  \item[Incerteza Tipo B] Estimada por qualquer outro meio --- aqui, pela
+    especificação do fabricante. Um datasheet que promete
+    $\pm(a\% \text{ da leitura} + b \text{ da faixa})$ está declarando um
+    \emph{limite}, não um desvio padrão. Sem informação sobre a forma da
+    distribuição dentro desse limite, o GUM manda assumir distribuição
+    retangular:
+    \begin{equation}
+      u_B = \frac{a}{\sqrt{3}}
+      \label{eq:tipoB}
+    \end{equation}
+  \item[Combinação] Contribuições independentes somam em quadratura:
+    \begin{equation}
+      u = \sqrt{u_A^2 + u_B^2}
+      \label{eq:comb}
+    \end{equation}
+  \item[Propagação] Para $f(x,y,\dots)$ com variáveis independentes:
+    \begin{equation}
+      u_f^2 = \left(\frac{\partial f}{\partial x}\right)^2 u_x^2
+            + \left(\frac{\partial f}{\partial y}\right)^2 u_y^2 + \dots
+      \label{eq:prop}
+    \end{equation}
+  \item[Incerteza expandida] Para declarar um intervalo de confiança:
+    \begin{equation}
+      U = k \cdot u_c \qquad (k = 2 \Rightarrow \approx 95\%)
+      \label{eq:expandida}
+    \end{equation}
+\end{description}
+
+\subsection{Aleatório versus sistemático: a distinção que organiza tudo}
+
+Este é o ponto mais importante da seção, e o mais fácil de errar.
+
+Nem toda incerteza pode entrar no peso de um ponto individual. Considere $R_0$:
+ele é o \emph{mesmo} para toda a varredura. Errar $R_0$ desloca todas as
+temperaturas na mesma direção --- não espalha os pontos, translada a nuvem
+inteira. Colocá-lo no peso individual equivale a dizer ao ajuste que cada ponto
+flutua sozinho tanto quanto o conjunto se desloca junto. O efeito prático é
+inflar os pesos e derrubar o $\chi^2$ reduzido artificialmente.
+
+A implementação separa, portanto:
+
+\begin{center}
+\begin{tabular}{@{}p{3.4cm}p{5.2cm}p{5.6cm}@{}}
+\toprule
+& \textbf{Aleatórias} & \textbf{Sistemáticas} \\
+\midrule
+Quais são &
+Leitura de $V$ e $i$; fotocorrente (datasheet e Tipo A) &
+$R_0$, $\alpha$, $\beta$, $\lambda$ \\[0.4em]
+Comportamento &
+Variam ponto a ponto &
+Comuns a toda a varredura \\[0.4em]
+Como entram &
+No peso de cada ponto do ajuste &
+Propagadas ao final, sobre o resultado \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Para cada sistemática, o software refaz o ajuste com o parâmetro deslocado de
+$+u$ --- mantendo a \emph{mesma} seleção de pontos, pois se quer a
+sensibilidade ao parâmetro e não à seleção --- e mede o quanto $h$ se move:
+
+\begin{equation}
+  u_{h,\text{sist}}^{(p)} = \bigl| h(p + u_p) - h(p) \bigr|
+  \label{eq:sensibilidade}
+\end{equation}
+
+É o mesmo espírito de $(\partial f/\partial p)\,u_p$ da equação~\eqref{eq:prop},
+obtido numericamente porque a dependência de $h$ em $R_0$ passa por dentro do
+ajuste e não tem forma fechada simples.
+
+\subsection{A cadeia completa}
+
+\begin{center}
+\begin{tabular}{@{}rl@{}}
+\toprule
+\textbf{Passo} & \textbf{O que acontece} \\
+\midrule
+1 & $u(V)$, $u(i)$ das especificações de readback da fonte \\
+2 & $R = V/i - R_{\text{cabos}}$, com $u_R$ \\
+3 & $T$ pela Bhaskara, com $u_T$ \emph{aleatória} (só de $u_R$) \\
+4 & $u(I_{\text{LED}})$ do datasheet, combinada com o Tipo A \\
+5 & Seleção dos pontos (região de Wien e limiar do instrumento) \\
+6 & $x = 1/T$, $y = \ln I$, com suas incertezas \\
+7 & Ajuste ponderado com erro nos dois eixos $\rightarrow m \pm u_m$ \\
+8 & $h = -m\lambda k_B/c$ \\
+9 & Sensibilidade às sistemáticas $R_0$, $\alpha$, $\beta$ \\
+10 & Combinação final e $U = k\,u_h$ \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsubsection*{Passo 2 --- resistência}
+
+Para um quociente, as incertezas \emph{relativas} somam em quadratura:
+
+\begin{equation}
+  \left(\frac{u_{V/i}}{V/i}\right)^2 = \left(\frac{u_V}{V}\right)^2
+                                     + \left(\frac{u_i}{i}\right)^2,
+  \qquad
+  u_R^2 = u_{V/i}^2 + u_{R_{\text{cabos}}}^2
+  \label{eq:uR}
+\end{equation}
+
+\subsubsection*{Passo 3 --- temperatura}
+
+Derivando implicitamente $R = R_0(1 + \alpha T_c + \beta T_c^2)$ e chamando
+$D = R_0(\alpha + 2\beta T_c)$, que é $dR/dT_c$:
+
+\begin{align}
+  \frac{\partial T}{\partial R}      &= \frac{1}{D}  \label{eq:dTdR}\\[0.3em]
+  \frac{\partial T}{\partial R_0}    &= -\frac{1 + \alpha T_c + \beta T_c^2}{D} \label{eq:dTdR0}\\[0.3em]
+  \frac{\partial T}{\partial \alpha} &= -\frac{R_0 T_c}{D}   \label{eq:dTda}\\[0.3em]
+  \frac{\partial T}{\partial \beta}  &= -\frac{R_0 T_c^2}{D} \label{eq:dTdb}
+\end{align}
+
+As quatro são conferidas contra derivação numérica nos testes, com concordância
+em seis dígitos. Quando $D \to 0$ o modelo perde sensibilidade --- a curva
+$R(T)$ fica horizontal e a inversão deixa de ser bem posta --- e a
+implementação devolve infinito, para que o ponto apareça com incerteza enorme
+em vez de passar despercebido.
+
+\subsubsection*{Passos 6 e 7 --- linearização e ajuste}
+
+\begin{equation}
+  u_x = \frac{u_T}{T^2}
+  \qquad\qquad
+  u_y = \frac{u_I}{I}
+  \label{eq:eixos}
+\end{equation}
+
+Com peso $w_i = 1/u_{y_i}^2$, minimizar $\chi^2 = \sum w_i (y_i - m x_i - c)^2$
+leva às somas $S = \sum w$, $S_x = \sum wx$, $S_y = \sum wy$,
+$S_{xx} = \sum wx^2$, $S_{xy} = \sum wxy$, e:
+
+\begin{equation}
+  \Delta = S S_{xx} - S_x^2, \quad
+  m = \frac{S S_{xy} - S_x S_y}{\Delta}, \quad
+  u_m = \sqrt{\frac{S}{\Delta}}
+  \label{eq:wls}
+\end{equation}
+
+Como $u_x$ não é desprezível, usa-se o método da \textbf{variância efetiva}
+(Orear 1982; equivalente ao de York 1968 para retas), que projeta o erro de $x$
+sobre $y$ pela própria inclinação:
+
+\begin{equation}
+  w_i = \frac{1}{u_{y_i}^2 + m^2 u_{x_i}^2}
+  \label{eq:varefetiva}
+\end{equation}
+
+O peso depende de $m$, então itera-se: parte-se do $m$ do ajuste simples,
+recalculam-se os pesos, reajusta-se, até $m$ estabilizar. Converge em poucas
+iterações.
+
+\begin{nota}
+\textbf{Por que não uma rotina pronta de ODR.} A implementação é própria, em
+vinte linhas de \texttt{numpy}, por três razões: \texttt{scipy.odr} está
+depreciada e será removida na versão 1.19; o método cabe inteiro numa página e
+pode ser auditado; e não acrescenta dependência ao projeto. Se o orientador
+exigir ODR completa, a troca é localizada numa única função.
+\end{nota}
+
+\subsubsection*{Passo 10 --- combinação}
+
+\begin{equation}
+  u_h^2 = \underbrace{\left(\frac{u_m}{m}\right)^2 h^2}_{\text{ajuste}}
+        + \underbrace{\left(\frac{u_\lambda}{\lambda}\right)^2 h^2}_{\lambda}
+        + \sum_p \bigl(u_{h,\text{sist}}^{(p)}\bigr)^2
+  \label{eq:uh}
+\end{equation}
+
+com $u_\lambda = \Delta\lambda/\sqrt{3}$ e $U = k\,u_h$, $k = 2$.
+
+\subsection{Como ler o $\chi^2$ reduzido neste experimento}
+
+O $\chi^2$ reduzido responde "as incertezas declaradas explicam a dispersão
+observada?". Valor perto de 1 significa que sim.
+
+\begin{nota}
+\textbf{Aqui ele fica sistematicamente abaixo de 1, e isso é esperado.} A
+incerteza da fotocorrente vem de uma especificação de datasheet, que é um
+\emph{limite de pior caso} tratado como distribuição retangular. O ruído real
+do instrumento é bem menor que o pior caso garantido pelo fabricante. Declarar
+o limite e observar dispersão menor que ele produz $\chi^2_{\text{red}}$
+pequeno por construção --- aproximadamente o quadrado da razão entre o ruído
+real e a incerteza declarada.
+
+O $\chi^2$ só tenderia a 1 se a incerteza declarada fosse o desvio padrão
+verdadeiro do processo aleatório. Ele continua útil como diagnóstico
+\emph{relativo}: uma mudança brusca entre coletas indica que algo mudou na
+montagem.
+\end{nota}
+
+\subsection{O orçamento de incertezas}
+
+O software reporta a fatia de cada fonte na variância de $h$. Num caso típico
+da bancada simulada, varrendo de 0 a 12~V:
+
+\begin{center}
+\begin{tabular}{@{}lr@{}}
+\toprule
+\textbf{Fonte} & \textbf{Contribuição} \\
+\midrule
+$\lambda$ (largura espectral do LED) & 53\% \\
+Inclinação (aleatório do ajuste) & 41\% \\
+$R_0$ (sistemático) & 6\% \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A largura espectral do LED domina, como previsto: são dezenas de nanômetros
+sobre um $\lambda$ de 590~nm. Nenhuma melhoria na eletrônica reduz esse termo
+--- só um sensor mais seletivo reduziria.
+
+\subsection{O que NÃO está no orçamento}
+
+Erros sistemáticos de natureza física não entram: emissividade do tungstênio
+(o filamento é corpo cinza, não negro), reflexões na montagem, alinhamento
+entre LED e filamento, e gradiente de temperatura ao longo do filamento. Se o
+valor da CODATA cair fora da incerteza declarada, é aí que se deve procurar ---
+e o software diz explicitamente quando isso acontece.
+
+% =============================================================
 \section{A bancada simulada}
 \label{sec:mock}
 

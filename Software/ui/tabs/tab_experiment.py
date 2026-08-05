@@ -14,9 +14,12 @@ from PySide6.QtGui import QFont
 import pyqtgraph as pg
 
 from content.filamentos import PRESETS_FILAMENTO, PRESET_PADRAO
-from utils.math_models import (calculate_temperature, calculate_planck_constant,
-                               corrigir_r0_para_zero_celsius, selecionar_pontos_validos,
+from utils.math_models import (calculate_temperature, corrigir_r0_para_zero_celsius,
+                               selecionar_pontos_validos, H_REF,
                                TEMPERATURA_AMBIENTE_PADRAO, TEMPERATURA_MINIMA_PADRAO)
+from utils.error_models import (analisar_experimento, incerteza_tipo_a,
+                                incerteza_r0_corrigido, DELTA_LAMBDA_PADRAO_NM,
+                                INCERTEZA_TEMPERATURA_AMBIENTE)
 from core.hardware_manager import (obter_drivers, preferencias,
                                    CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
@@ -27,7 +30,9 @@ from utils.pdf_exporter import generate_planck_report
 # --- THREAD DE EXPERIMENTO REAL ---
 class ExperimentWorker(QThread):
     new_data_point = Signal(float, float, float) # Tensão(V), Temperatura(K), Fotocorrente(A)
-    finished_exp = Signal(float, float, float, float, float) # h, erro, m, c, r2
+    # Carrega um ResultadoAnalise inteiro: h, incerteza, orçamento, ajuste e
+    # máscara de pontos usados não caberiam numa lista de floats.
+    finished_exp = Signal(object)
     error_occurred = Signal(str)
     
     def __init__(self, params, dmm_res, pws_res, modo_demonstracao: bool = False):
@@ -70,7 +75,8 @@ class ExperimentWorker(QThread):
             with open(self.csv_filename, mode='w', newline='') as file:
                 writer = csv.writer(file)
                 writer.writerow(["Tensao_Fonte_V", "Corrente_Filamento_A", "Resistencia_Ohms",
-                                 "Temperatura_K", "Fotocorrente_A", "Tensao_Medida_V"])
+                                 "Temperatura_K", "Fotocorrente_A", "Tensao_Medida_V",
+                                 "Desvio_Fotocorrente_A", "N_Leituras"])
 
             v_start = self.params['v_start']
             v_end = self.params['v_end']
@@ -81,7 +87,11 @@ class ExperimentWorker(QThread):
             
             data_T = []
             data_I_led = []
-            
+            data_V_medida = []
+            data_I_fil = []
+            data_u_led = []      # incerteza Tipo A por ponto (0 se N = 1)
+            n_leituras = max(1, int(self.params.get('n_leituras', 1)))
+
             pws.set_output(True)
             
             # 2. O Loop de Coleta de Dados
@@ -95,9 +105,16 @@ class ExperimentWorker(QThread):
                 # Aguardar a estabilização térmica do filamento
                 time.sleep(delay_sec)
                 
-                # Ler dados reais
+                # Ler dados reais. A fotocorrente é a grandeza que de fato
+                # flutua, então é nela que vale repetir a leitura: com N > 1
+                # obtemos também a incerteza Tipo A, s/raiz(N) (E1).
                 i_fil = pws.measure_current()
-                i_led = dmm.read_current()
+                if n_leituras > 1:
+                    leituras = [dmm.read_current() for _ in range(n_leituras)]
+                    i_led, u_led_tipo_a = incerteza_tipo_a(leituras)
+                else:
+                    i_led = dmm.read_current()
+                    u_led_tipo_a = 0.0
 
                 # A4: usar a tensão medida nos terminais, não o setpoint. Se o
                 # instrumento não responder ao readback, cai para o valor
@@ -122,12 +139,16 @@ class ExperimentWorker(QThread):
                 # Guardar no Fail-Safe instantaneamente
                 with open(self.csv_filename, mode='a', newline='') as file:
                     writer = csv.writer(file)
-                    writer.writerow([v_target, i_fil, r_fil, t_inst, i_led, v_medido])
+                    writer.writerow([v_target, i_fil, r_fil, t_inst, i_led, v_medido,
+                                     u_led_tipo_a, n_leituras])
 
                 # Armazenar para o cálculo final
                 data_T.append(t_inst)
                 data_I_led.append(i_led)
-                
+                data_V_medida.append(v_medido)
+                data_I_fil.append(i_fil)
+                data_u_led.append(u_led_tipo_a)
+
                 # Enviar para a Interface Gráfica
                 self.new_data_point.emit(v_target, t_inst, i_led)
                 
@@ -136,11 +157,27 @@ class ExperimentWorker(QThread):
             
             # Calcular a Constante de Planck com os dados recolhidos (mesmo se interrompido!)
             if len(data_T) > 2:
-                h_exp, erro, m, c, r2 = calculate_planck_constant(
-                    np.array(data_T), np.array(data_I_led), self.params['lam'],
-                    t_minima=self.params['t_minima']
-                )
-                self.finished_exp.emit(h_exp, erro, m, c, r2)
+                # A cadeia inteira — de medidas brutas a h ± U — vive em
+                # error_models. Aqui só entregamos os vetores e os parâmetros.
+                try:
+                    resultado = analisar_experimento(
+                        np.array(data_V_medida), np.array(data_I_fil),
+                        np.array(data_I_led),
+                        r0=self.params['r0'], alpha=self.params['alpha'],
+                        beta=self.params['beta'], lambda_nm=self.params['lam'],
+                        delta_lambda_nm=self.params['delta_lam'],
+                        r_cabos=self.params['r_cabos'],
+                        u_r0=self.params['u_r0'],
+                        u_fotocorrente_tipo_a=np.array(data_u_led),
+                        t_minima=self.params['t_minima'],
+                    )
+                except ValueError as erro_analise:
+                    self.error_occurred.emit(
+                        f"Dados coletados, mas a análise não pôde ser feita: "
+                        f"{erro_analise}\nO CSV foi salvo em {self.csv_filename}."
+                    )
+                    return
+                self.finished_exp.emit(resultado)
             elif not self.is_running:
                 # Interrompido antes de ter 3 pontos (impossível fazer regressão)
                 self.error_occurred.emit("Recolha parada antes de acumular pontos suficientes para a regressão linear (>2). Os dados brutos foram salvos no CSV.")
@@ -201,8 +238,19 @@ class TabExperiment(QWidget):
         self.input_alpha = QLineEdit(str(PRESET_PADRAO.alpha))
         self.input_beta = QLineEdit(str(PRESET_PADRAO.beta))
         self.input_lambda = QLineEdit("590")
+        self.input_delta_lambda = QLineEdit(str(DELTA_LAMBDA_PADRAO_NM))
         self.input_r_cabos = QLineEdit("0.0")
+        self.input_u_r_frio = QLineEdit("0.01")
 
+        self.input_delta_lambda.setToolTip(
+            "Meia largura espectral do LED. O artigo cita 25 a 35 nm.\n"
+            "É quase sempre a MAIOR fonte de incerteza em h — tratada como\n"
+            "distribuição retangular: u(λ) = Δλ/√3."
+        )
+        self.input_u_r_frio.setToolTip(
+            "Incerteza da medida de resistência a frio (o erro do ohmímetro).\n"
+            "Propaga para R0 e daí para todas as temperaturas."
+        )
         self.input_r_frio.setToolTip(
             "Resistência do filamento medida frio, na temperatura ambiente.\n"
             "O software converte para R0 (a 0 °C) automaticamente."
@@ -225,11 +273,13 @@ class TabExperiment(QWidget):
 
         form_params.addRow("Preset de coeficientes:", self.combo_preset)
         form_params.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
+        form_params.addRow("Incerteza de R a frio (Ω):", self.input_u_r_frio)
         form_params.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
         form_params.addRow("", self.lbl_r0_corrigido)
         form_params.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
         form_params.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
         form_params.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
+        form_params.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
         form_params.addRow("Resistência dos cabos (Ω):", self.input_r_cabos)
         group_params.setLayout(form_params)
 
@@ -250,7 +300,14 @@ class TabExperiment(QWidget):
         form_sweep.addRow("Tensão Inicial (V):", self.input_v_start)
         form_sweep.addRow("Tensão Final (V):", self.input_v_end)
         form_sweep.addRow("Passo de Tensão (V):", self.input_v_step)
+        self.input_n_leituras = QLineEdit("1")
+        self.input_n_leituras.setToolTip(
+            "Quantas leituras da fotocorrente fazer em cada ponto.\n"
+            "Com N > 1 o software calcula a incerteza Tipo A (s/√N) do ponto.\n"
+            "Custa tempo: N leituras por tensão. Com 1, só há incerteza de datasheet."
+        )
         form_sweep.addRow("Estabilização Térmica (ms):", self.input_delay)
+        form_sweep.addRow("Leituras por ponto (N):", self.input_n_leituras)
         form_sweep.addRow("Temp. mínima p/ regressão (K):", self.input_t_minima)
         group_sweep.setLayout(form_sweep)
 
@@ -461,11 +518,20 @@ class TabExperiment(QWidget):
             self.btn_stop.setEnabled(False)
             return
 
+        # Incerteza de R0: propaga a do ohmímetro e a da temperatura ambiente.
+        u_r0 = incerteza_r0_corrigido(
+            r_frio, t_ambiente, alpha, beta,
+            u_r_frio=float(self.input_u_r_frio.text()),
+            u_t_ambiente=INCERTEZA_TEMPERATURA_AMBIENTE)
+
         params = {
-            'r0': r0, 'r_frio': r_frio, 't_ambiente': t_ambiente,
+            'r0': r0, 'r_frio': r_frio, 't_ambiente': t_ambiente, 'u_r0': u_r0,
+            'u_r_frio': float(self.input_u_r_frio.text()),
             'alpha': alpha, 'beta': beta, 'lam': float(self.input_lambda.text()),
+            'delta_lam': float(self.input_delta_lambda.text()),
             'r_cabos': float(self.input_r_cabos.text()),
             't_minima': float(self.input_t_minima.text()),
+            'n_leituras': int(float(self.input_n_leituras.text())),
             'v_start': float(self.input_v_start.text()), 'v_end': float(self.input_v_end.text()),
             'v_step': float(self.input_v_step.text()), 'delay': float(self.input_delay.text())
         }
@@ -493,31 +559,47 @@ class TabExperiment(QWidget):
         self.worker.error_occurred.connect(self.handle_error)
         self.worker.start()
 
-    def experiment_finished(self, h_exp, erro, m, c, r2):
+    def experiment_finished(self, resultado):
         self.btn_start.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.btn_export.setEnabled(True) # Habilita o botão do PDF
-        
+
+        self.last_analise = resultado
         # Salva os resultados para o PDF puxar depois
         self.last_results = {
-            'h_ref': 6.626e-34,
-            'h_exp': h_exp,
-            'error': erro,
-            'r2': r2
+            'h_ref': H_REF,
+            'h_exp': resultado.h,
+            'error': resultado.erro_relativo,
+            'r2': resultado.ajuste.r2,
+            'incerteza_expandida': resultado.incerteza_expandida,
+            'k': resultado.k,
+            'texto': resultado.texto,
+            'chi2_reduzido': resultado.ajuste.chi2_reduzido,
+            'orcamento': resultado.orcamento_ordenado(),
+            'compativel': resultado.compativel_com_codata,
         }
-        
-        n_usados = int(np.sum(selecionar_pontos_validos(
-            np.array(self.data_t, dtype=float),
-            np.array(self.data_i_led, dtype=float),
-            self.params['t_minima'])))
 
-        self.lbl_h_result.setText(f"h = {h_exp:.4e} J.s")
+        self.lbl_h_result.setText(f"h = {resultado.texto}")
         self.lbl_h_result.setStyleSheet("background-color: #1e1e1e; color: #00ff00; border-radius: 5px; padding: 10px;")
+
+        orcamento = " · ".join(f"{nome} {pct:.0f}%"
+                               for nome, pct in resultado.orcamento_ordenado())
         self.lbl_status.setText(
-            f"Erro: {erro:.2f}% | R²: {r2:.4f} | "
-            f"{n_usados} de {len(self.data_t)} pontos na regressão"
+            f"Erro vs CODATA: {resultado.erro_relativo:.2f}% | "
+            f"R²: {resultado.ajuste.r2:.4f} | χ²_red: {resultado.ajuste.chi2_reduzido:.2f}\n"
+            f"{resultado.n_usados} de {resultado.n_total} pontos | "
+            f"Incerteza: {orcamento}"
         )
-        QMessageBox.information(self, "Concluído", f"Experimento concluído em segurança.\nDados guardados em: {self.worker.csv_filename}")
+
+        veredicto = ("O valor da CODATA está DENTRO da incerteza."
+                     if resultado.compativel_com_codata
+                     else "O valor da CODATA está FORA da incerteza — há erro "
+                          "sistemático não contabilizado.")
+        QMessageBox.information(
+            self, "Concluído",
+            f"Experimento concluído em segurança.\n\n"
+            f"h = {resultado.texto}\n{veredicto}\n\n"
+            f"Dados guardados em: {self.worker.csv_filename}")
         
         
     def handle_error(self, error_msg):
@@ -565,10 +647,12 @@ class TabExperiment(QWidget):
                         'R0 corrigido (0 °C)': f"{self.params['r0']:.4f} Ω",
                         'Alpha': f"{self.params['alpha']} K⁻¹",
                         'Beta': f"{self.params['beta']} K⁻²",
-                        'Comprimento de Onda': f"{self.params['lam']} nm",
+                        'Comprimento de Onda': f"{self.params['lam']} ± {self.params['delta_lam']} nm",
                         'Resistência dos cabos': f"{self.params['r_cabos']} Ω",
+                        'Incerteza de R0 propagada': f"{self.params['u_r0']:.5f} Ω",
                         'Varredura': f"De {self.params['v_start']}V a {self.params['v_end']}V (Passo: {self.params['v_step']}V)",
                         'Estabilização Térmica': f"{self.params['delay']} ms",
+                        'Leituras por ponto (N)': f"{self.params['n_leituras']}",
                         'Temp. mínima na regressão': f"{self.params['t_minima']} K",
                         'Pontos usados na regressão': f"{n_usados} de {len(self.data_t)}"
                     }

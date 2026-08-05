@@ -85,6 +85,8 @@ Software/
 │   ├── math_models.py           # corrigir_r0_para_zero_celsius, calculate_temperature,
 │   │                            #   selecionar_pontos_validos, simulate_experiment_data,
 │   │                            #   calculate_planck_constant
+│   ├── error_models.py          # GUM: Tipo A/B, propagação, ajuste ponderado,
+│   │                            #   analisar_experimento() → h ± U + orçamento
 │   └── pdf_exporter.py          # Relatório PDF via reportlab
 └── data_backup/                 # exp_planck_*.csv (bancada real) e demo_planck_*.csv
                                  #   (simulados). Colunas: Tensao_Fonte_V,
@@ -92,7 +94,8 @@ Software/
                                  #   Fotocorrente_A, Tensao_Medida_V (nova, ao final)
 Tests/test_connection.py         # Scan VISA standalone (espelha o ScannerThread)
 Tests/test_mock_hardware.py      # 17 checagens da bancada simulada (roda sem hardware)
-Tests/test_math_models.py        # 22 checagens do modelo fisico (A2, A5, regressao)
+Tests/test_math_models.py        # 25 checagens do modelo fisico (A2, A5, regressao)
+Tests/test_error_models.py       # 40 checagens da teoria de erros (Tipo A/B, ajuste, propagacao)
 Markdowns/project_description.md # Especificação original (as abas Análise e Comparação ainda faltam)
 Docs/                            # Artigo de referência + datasheets Tektronix
 ```
@@ -369,8 +372,26 @@ profiles/
    - `Tests/test_math_models.py` (22 checagens) + o critério de aceitação do A5
      fixado em `Tests/test_mock_hardware.py`.
    - **Aberto:** A6, A7, A8 (documentação/incerteza — Fase 3), A9, A10.
-4. **Fase 3 — Teoria de erros:** `utils/error_models.py` + WLS/ODR + testes
-   unitários + exibição `h ± U` + orçamento de incertezas (§6).
+4. ~~**Fase 3 — Teoria de erros**~~ ✅ **CONCLUÍDA (motor; painel visual na Fase 5).**
+   - `utils/error_models.py`: specs de instrumento como dataclasses, Tipo A/B,
+     propagação com derivadas analíticas, ajuste ponderado e orçamento.
+   - **Ajuste:** WLS + método da **variância efetiva** (Orear 1982 / York 1968)
+     em numpy puro. **Não usa `scipy.odr` — está deprecada e sai na 1.19.**
+     Nenhuma dependência nova foi adicionada.
+   - **B6 morto:** o limiar de corrente agora sai de
+     `limiar_corrente_confiavel()` (≈25 nA, o termo de fundo do DMM4050) em vez
+     do 1 nA arbitrário — que era menor que o próprio ruído e não filtrava nada.
+   - **Aleatório × sistemático:** R0/α/β são comuns a toda a varredura e NÃO
+     entram no peso dos pontos; são propagados por sensibilidade (refazendo o
+     ajuste com o parâmetro deslocado). Pôr sistemático no peso derrubava o
+     χ²_red de 0,101 para 0,035 e inflava u_m de 615 para 1099.
+   - **Tipo A:** campo "Leituras por ponto (N)", padrão 1 (comportamento atual).
+     Com N>1 grava desvio e nº de leituras no CSV.
+   - UI mostra `h = (6,50 ± 0,52)×10⁻³⁴ J·s (k=2)`, χ²_red, orçamento resumido
+     e veredicto de compatibilidade com a CODATA. PDF ganhou tabela de orçamento.
+   - **Toda a teoria está no `manual_tecnico.tex` §"Teoria de erros"** e nas
+     hipóteses H1–H6 do cabeçalho de `error_models.py` — para revisão do
+     orientador (PENDENCIAS.txt, P2).
 5. **Fase 4 — Perfis modulares (§8)** e página Parâmetros unificada.
 6. **Fase 5 — Nova interface (§7):** migrar para `FluentWindow` + QFluentWidgets,
    uma página por vez (começar pela Conexão, que é a mais simples), mantendo as

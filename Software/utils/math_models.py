@@ -10,6 +10,18 @@ E_CHARGE = 1.602176634e-19   # Carga elementar (C)
 TEMPERATURA_AMBIENTE_PADRAO = 25.0   # °C
 TEMPERATURA_MINIMA_PADRAO = 1800.0   # K — piso da região de Wien útil (ver A5)
 
+# Menor fotocorrente que ainda carrega informação, em ampères (B6).
+#
+# NÃO é um número escolhido à mão: é o resultado de
+# `error_models.limiar_corrente_confiavel()`, que exige que a leitura supere a
+# margem de exatidão do próprio DMM4050 na faixa de 100 µA. Fica replicado aqui
+# como constante para não criar import circular (error_models importa este
+# módulo); `Tests/test_error_models.py` verifica que os dois valores concordam.
+#
+# O valor antigo era 1e-9 (1 nA) — menor que o ruído de fundo do instrumento,
+# de modo que não descartava ponto nenhum.
+LIMIAR_CORRENTE_PADRAO = 25e-9
+
 
 def corrigir_r0_para_zero_celsius(r_frio: float, t_ambiente_c: float,
                                   alpha: float, beta: float) -> float:
@@ -95,7 +107,7 @@ def simulate_experiment_data(voltages: np.ndarray, R0: float, alpha: float, beta
 
 def selecionar_pontos_validos(T_kelvin: np.ndarray, photocurrent: np.ndarray,
                               t_minima: float = 0.0,
-                              limiar_corrente: float = 1e-9) -> np.ndarray:
+                              limiar_corrente: float = LIMIAR_CORRENTE_PADRAO) -> np.ndarray:
     """
     Máscara booleana dos pontos que podem entrar na regressão.
 
@@ -132,7 +144,7 @@ def selecionar_pontos_validos(T_kelvin: np.ndarray, photocurrent: np.ndarray,
 def calculate_planck_constant(T_kelvin: np.ndarray, photocurrent: np.ndarray,
                               lambda_led_nm: float,
                               t_minima: float = 0.0,
-                              limiar_corrente: float = 1e-9) -> tuple:
+                              limiar_corrente: float = LIMIAR_CORRENTE_PADRAO) -> tuple:
     """
     Realiza a regressão linear de ln(I) vs 1/T para extrair a constante de Planck experimental.
 

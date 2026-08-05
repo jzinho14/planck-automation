@@ -441,16 +441,68 @@ histórica, então arquivos antigos continuam legíveis pelas mesmas ferramentas
 Ao final, o software mostra três números:
 
 \begin{description}[style=nextline,leftmargin=0.6cm]
-  \item[$h$ experimental]
-    O valor obtido, em J$\cdot$s. O valor de referência (CODATA) é
-    $6{,}62607015 \times 10^{-34}$~J$\cdot$s.
+  \item[$h$ com sua incerteza]
+    Apresentado na forma $(6{,}50 \pm 0{,}52)\times 10^{-34}$~J$\cdot$s (k=2).
+    O $\pm$ é a incerteza expandida: significa, grosso modo, 95\% de confiança
+    de que o valor verdadeiro está nesse intervalo. O valor de referência
+    (CODATA) é $6{,}62607015 \times 10^{-34}$~J$\cdot$s.
   \item[Erro relativo]
     A diferença percentual entre o valor obtido e o de referência.
   \item[$R^2$]
     Quão bem os pontos se ajustam a uma reta na forma linearizada. Um $R^2$
     próximo de 1 indica que a relação linear se sustentou; um $R^2$ baixo
     indica que a regressão pegou pontos que não seguem o modelo.
+  \item[$\chi^2$ reduzido]
+    Compara a dispersão observada com a incerteza declarada dos instrumentos.
+    \textbf{Neste experimento ele fica bem abaixo de 1, e isso é normal} --- a
+    especificação do fabricante é um limite de pior caso, e o ruído real é
+    menor. Serve para comparar coletas entre si: uma mudança brusca indica que
+    algo mudou na montagem.
+  \item[Pontos usados]
+    Quantos dos pontos coletados entraram na conta.
+  \item[Orçamento de incertezas]
+    A fatia de cada fonte na incerteza final. Diz onde vale investir para
+    melhorar o resultado.
 \end{description}
+
+\subsection{Compatibilidade com o valor de referência}
+
+Ao final, o software informa se o valor da CODATA cai \emph{dentro} da
+incerteza declarada.
+
+\begin{itemize}[nosep]
+  \item \textbf{Cai dentro} --- o experimento é consistente com o valor
+        conhecido, dentro da precisão que a montagem permite. É o resultado
+        esperado de uma coleta bem feita.
+  \item \textbf{Cai fora} --- há erro sistemático não contabilizado. Os
+        suspeitos habituais são a calibração ($R_0$, temperatura ambiente,
+        coeficientes) e efeitos físicos que o modelo não inclui: emissividade
+        do tungstênio, reflexões na montagem, alinhamento entre LED e
+        filamento.
+\end{itemize}
+
+\subsection{Onde a incerteza nasce}
+
+O orçamento quase sempre é dominado pela \textbf{largura espectral do LED}. Um
+LED não responde a um único comprimento de onda, e sim a uma banda de algumas
+dezenas de nanômetros --- sobre 590~nm, isso são vários por cento, mais do que
+qualquer outro termo da cadeia.
+
+\begin{aviso}
+\textbf{Consequência prática.} Melhorar a eletrônica não melhora esse termo.
+Se você quiser um resultado mais preciso, o caminho é um sensor espectralmente
+mais seletivo (um filtro de banda estreita, por exemplo), não um multímetro
+melhor. O orçamento na tela mostra isso a cada coleta.
+\end{aviso}
+
+\subsection{Repetindo leituras (incerteza Tipo A)}
+
+O campo \campo{Leituras por ponto (N)} manda o software medir a fotocorrente
+$N$ vezes em cada tensão. Com $N > 1$, ele calcula também a dispersão
+estatística daquele ponto e a soma à incerteza do fabricante.
+
+Custa tempo: $N$ leituras por tensão, e cada leitura do multímetro leva alguns
+décimos de segundo. Com $N = 1$ (padrão) só existe a incerteza de datasheet.
 
 \subsection{Por que a faixa de varredura importa tanto}
 \label{sec:faixa}

@@ -124,9 +124,17 @@ com_corte = selecionar_pontos_validos(T, I, t_minima=1800.0)
 checa(list(com_corte) == [False, False, False, True, True, False, False],
       "o corte mantém só a região quente", f"{list(com_corte)}")
 
-checa(np.sum(selecionar_pontos_validos(T, I, 1800.0)) <
+checa(np.sum(selecionar_pontos_validos(T, I, 1800.0)) <=
       np.sum(selecionar_pontos_validos(T, I, 0.0)),
       "aumentar t_minima nunca aumenta o número de pontos")
+
+# Depois do B6, o limiar padrão de corrente já elimina sozinho os pontos de
+# piso — mesmo sem corte de temperatura. Os dois filtros se reforçam.
+checa(np.sum(selecionar_pontos_validos(T, I, 0.0, limiar_corrente=1e-9)) >
+      np.sum(selecionar_pontos_validos(T, I, 0.0)),
+      "o limiar derivado (25 nA) descarta mais que o antigo de 1 nA",
+      f"{int(np.sum(selecionar_pontos_validos(T, I, 0.0, limiar_corrente=1e-9)))} pontos com 1 nA "
+      f"vs {int(np.sum(selecionar_pontos_validos(T, I, 0.0)))} com o limiar do datasheet")
 
 so_piso = selecionar_pontos_validos(np.array([2500.0]), np.array([5e-10]), 0.0)
 checa(not so_piso[0], "fotocorrente abaixo do limiar é descartada mesmo quente")
@@ -151,12 +159,25 @@ I_frio = np.full_like(T_frio, 4.5e-9)
 T_tudo = np.concatenate([T_frio, T_ideal])
 I_tudo = np.concatenate([I_frio, I_ideal])
 
-_, erro_sem, _, _, r2_sem = calculate_planck_constant(T_tudo, I_tudo, lam_nm, t_minima=0.0)
+# Com o limiar ANTIGO de 1 nA (menor que o piso de 4,5 nA), os pontos de piso
+# entravam e envenenavam o ajuste.
+_, erro_antigo, _, _, r2_antigo = calculate_planck_constant(
+    T_tudo, I_tudo, lam_nm, t_minima=0.0, limiar_corrente=1e-9)
+checa(erro_antigo > 10.0,
+      "com o limiar antigo de 1 nA, os pontos de piso estragam o ajuste",
+      f"erro {erro_antigo:.1f}%, R²={r2_antigo:.4f}")
+
+# Com o limiar derivado do datasheet (B6), eles caem fora sozinhos — sem
+# precisar sequer do corte de temperatura.
+_, erro_b6, _, _, r2_b6 = calculate_planck_constant(T_tudo, I_tudo, lam_nm, t_minima=0.0)
+checa(erro_b6 < 1e-6,
+      "o limiar derivado (B6) sozinho já devolve o resultado exato",
+      f"erro {erro_b6:.2e}%, R²={r2_b6:.6f}")
+
+# E os dois filtros juntos continuam corretos.
 _, erro_com, _, _, r2_com = calculate_planck_constant(
     T_tudo, I_tudo, lam_nm, t_minima=TEMPERATURA_MINIMA_PADRAO)
-checa(erro_sem > 10.0, "pontos de piso estragam o ajuste quando não filtrados",
-      f"erro {erro_sem:.1f}%, R²={r2_sem:.4f}")
-checa(erro_com < 1e-6, "e o corte devolve o resultado exato",
+checa(erro_com < 1e-6, "com corte de temperatura também",
       f"erro {erro_com:.2e}%, R²={r2_com:.6f}")
 
 if FALHAS:

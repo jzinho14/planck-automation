@@ -13,15 +13,17 @@ from ui.components.export_dialog import ExportDialog
 
 
 from content.filamentos import PRESETS_FILAMENTO, PRESET_PADRAO
-from utils.math_models import (simulate_experiment_data, calculate_planck_constant,
+from utils.math_models import (simulate_experiment_data,
                                corrigir_r0_para_zero_celsius, selecionar_pontos_validos,
                                TEMPERATURA_AMBIENTE_PADRAO, TEMPERATURA_MINIMA_PADRAO)
+from utils.error_models import (analisar_experimento, incerteza_r0_corrigido,
+                                DELTA_LAMBDA_PADRAO_NM, INCERTEZA_TEMPERATURA_AMBIENTE)
 
 # --- THREAD DE SIMULAÇÃO EM TEMPO REAL ---
 class SimulationWorker(QThread):
     # Sinais para enviar dados para a interface principal
     new_data_point = Signal(float, float, float) # Tensão (V), Temperatura (K), Fotocorrente (A)
-    finished_sim = Signal(float, float, float, float, float) # h, erro, m, c, r2
+    finished_sim = Signal(object)   # ResultadoAnalise completo
 
     def __init__(self, params):
         super().__init__()
@@ -52,11 +54,20 @@ class SimulationWorker(QThread):
             self.new_data_point.emit(V[i], T[i], I_led[i])
             time.sleep(delay) # Simula o tempo de aquisição do DMM/PWS
             
-        # 4. Calcular a Constante de Planck com os dados gerados
+        # 4. Calcular a Constante de Planck com os dados gerados, pela mesma
+        #    cadeia de incertezas que a bancada real usa.
         if self.is_running and len(voltages) > 2:
-            h_exp, erro, m, c, r2 = calculate_planck_constant(
-                T, I_led, self.params['lam'], t_minima=self.params['t_minima'])
-            self.finished_sim.emit(h_exp, erro, m, c, r2)
+            try:
+                resultado = analisar_experimento(
+                    V, I_fil, I_led,
+                    r0=self.params['r0'], alpha=self.params['alpha'],
+                    beta=self.params['beta'], lambda_nm=self.params['lam'],
+                    delta_lambda_nm=self.params['delta_lam'],
+                    u_r0=self.params['u_r0'],
+                    t_minima=self.params['t_minima'])
+            except ValueError:
+                return
+            self.finished_sim.emit(resultado)
 
     def stop(self):
         self.is_running = False
@@ -106,6 +117,8 @@ class TabSimulation(QWidget):
         self.input_alpha = QLineEdit(str(PRESET_PADRAO.alpha))
         self.input_beta = QLineEdit(str(PRESET_PADRAO.beta))
         self.input_lambda = QLineEdit("590")
+        self.input_delta_lambda = QLineEdit(str(DELTA_LAMBDA_PADRAO_NM))
+        self.input_u_r_frio = QLineEdit("0.01")
         self.input_noise = QLineEdit("0.05")
 
         self.lbl_r0_corrigido = QLabel()
@@ -116,11 +129,13 @@ class TabSimulation(QWidget):
 
         form_params.addRow("Preset de coeficientes:", self.combo_preset)
         form_params.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
+        form_params.addRow("Incerteza de R a frio (Ω):", self.input_u_r_frio)
         form_params.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
         form_params.addRow("", self.lbl_r0_corrigido)
         form_params.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
         form_params.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
         form_params.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
+        form_params.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
         form_params.addRow("Fator de Ruído (0 a 1):", self.input_noise)
         group_params.setLayout(form_params)
 
@@ -289,6 +304,11 @@ class TabSimulation(QWidget):
             'alpha': alpha,
             'beta': beta,
             'lam': float(self.input_lambda.text()),
+            'delta_lam': float(self.input_delta_lambda.text()),
+            'u_r0': incerteza_r0_corrigido(
+                float(self.input_r_frio.text()), float(self.input_t_ambiente.text()),
+                alpha, beta, u_r_frio=float(self.input_u_r_frio.text()),
+                u_t_ambiente=INCERTEZA_TEMPERATURA_AMBIENTE),
             'noise': float(self.input_noise.text()),
             't_minima': float(self.input_t_minima.text()),
             'v_start': float(self.input_v_start.text()),
@@ -333,17 +353,26 @@ class TabSimulation(QWidget):
 
         self.progress_bar.setValue(len(self.data_v))
 
-    def simulation_finished(self, h_exp, erro, m, c, r2):
+    def simulation_finished(self, resultado):
         self.btn_simulate.setEnabled(True)
         self.btn_stop.setEnabled(False)
         self.btn_export.setEnabled(True)
-        
+
+        self.last_analise = resultado
+        m, c = resultado.ajuste.m, resultado.ajuste.c
+
         # Guarda os resultados
         self.last_results = {
             'h_ref': H_REF,
-            'h_exp': h_exp,
-            'error': erro,
-            'r2': r2
+            'h_exp': resultado.h,
+            'error': resultado.erro_relativo,
+            'r2': resultado.ajuste.r2,
+            'incerteza_expandida': resultado.incerteza_expandida,
+            'k': resultado.k,
+            'texto': resultado.texto,
+            'chi2_reduzido': resultado.ajuste.chi2_reduzido,
+            'orcamento': resultado.orcamento_ordenado(),
+            'compativel': resultado.compativel_com_codata,
         }
         
         # Guarda todos os parâmetros usados para rastreabilidade
@@ -357,9 +386,10 @@ class TabSimulation(QWidget):
             'R0 corrigido (0 °C)': f"{self.params['r0']:.4f} Ω",
             'Coef. Linear (α)': f"{self.input_alpha.text()} K⁻¹",
             'Coef. Quadrático (β)': f"{self.input_beta.text()} K⁻²",
-            'Comprimento de onda (λ)': f"{self.input_lambda.text()} nm",
+            'Comprimento de onda (λ)': f"{self.input_lambda.text()} ± {self.input_delta_lambda.text()} nm",
             'Varredura (Tensão)': f"De {self.input_v_start.text()} V a {self.input_v_end.text()} V (Passo: {self.input_v_step.text()} V)",
             'Fator de Ruído Simulado': self.input_noise.text(),
+            'Incerteza de R0 propagada': f"{self.params['u_r0']:.5f} Ω",
             'Temp. mínima na regressão': f"{self.params['t_minima']} K",
             'Pontos usados na regressão': f"{n_usados} de {len(self.data_t)}"
         }
@@ -370,10 +400,13 @@ class TabSimulation(QWidget):
             x_fit = np.array([np.min(x_linear), np.max(x_linear)])
             self.line_fit.setData(x_fit, m * x_fit + c)
 
-        self.lbl_h_result.setText(f"h = {h_exp:.4e} J.s")
+        orcamento = " · ".join(f"{nome} {pct:.0f}%"
+                               for nome, pct in resultado.orcamento_ordenado())
+        self.lbl_h_result.setText(f"h = {resultado.texto}")
         self.lbl_error.setText(
-            f"Erro Relativo: {erro:.2f}% | R²: {r2:.4f} | "
-            f"{n_usados}/{len(self.data_t)} pontos"
+            f"Erro vs CODATA: {resultado.erro_relativo:.2f}% | "
+            f"R²: {resultado.ajuste.r2:.4f} | χ²_red: {resultado.ajuste.chi2_reduzido:.2f}\n"
+            f"{resultado.n_usados}/{resultado.n_total} pontos | Incerteza: {orcamento}"
         )
 
     def export_pdf(self):

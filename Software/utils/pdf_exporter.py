@@ -51,9 +51,31 @@ def generate_planck_report(filepath: str, data_summary: dict, sim_params: dict, 
         ["Métrica Experimental", "Valor Obtido"],
         ["Constante de Planck (Referência)", f"{data_summary['h_ref']:.6e} J.s"],
         ["Constante de Planck (Experimental)", f"{data_summary['h_exp']:.6e} J.s"],
-        ["Erro Relativo Estimado", f"{data_summary['error']:.2f} %"],
-        ["Coeficiente de Determinação (R²)", f"{data_summary['r2']:.4f}"]
     ]
+
+    # O resultado com incerteza só existe quando a análise completa rodou.
+    if data_summary.get('texto'):
+        result_data.append(["Resultado declarado", data_summary['texto']])
+    if data_summary.get('incerteza_expandida') is not None:
+        result_data.append([
+            f"Incerteza expandida U (k={data_summary.get('k', 2):g})",
+            f"{data_summary['incerteza_expandida']:.3e} J.s"
+        ])
+
+    result_data.append(["Erro Relativo Estimado", f"{data_summary['error']:.2f} %"])
+    result_data.append(["Coeficiente de Determinação (R²)", f"{data_summary['r2']:.4f}"])
+
+    if data_summary.get('chi2_reduzido') is not None:
+        result_data.append(["Qui-quadrado reduzido",
+                            f"{data_summary['chi2_reduzido']:.3f}"])
+    if data_summary.get('compativel') is not None:
+        result_data.append([
+            "Compatível com a CODATA?",
+            "Sim — o valor de referência cai dentro da incerteza"
+            if data_summary['compativel'] else
+            "Não — há erro sistemático não contabilizado"
+        ])
+
     t_results = Table(result_data, colWidths=[200, 300])
     t_results.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (1,0), colors.HexColor('#e3f2fd')),
@@ -63,10 +85,31 @@ def generate_planck_report(filepath: str, data_summary: dict, sim_params: dict, 
     ]))
     story.append(t_results)
     story.append(Spacer(1, 15))
-    
+
+    # --- 3b. Orçamento de incertezas ---
+    orcamento = data_summary.get('orcamento') or []
+    if orcamento:
+        story.append(Paragraph("3. Orçamento de Incertezas", section_style))
+        story.append(Paragraph(
+            "Contribuição de cada fonte para a variância da constante de Planck. "
+            "A soma fecha em 100%.", body_style))
+        story.append(Spacer(1, 6))
+        orc_data = [["Fonte de incerteza", "Contribuição"]]
+        for nome, pct in orcamento:
+            orc_data.append([nome, f"{pct:.1f} %"])
+        t_orc = Table(orc_data, colWidths=[200, 300])
+        t_orc.setStyle(TableStyle([
+            ('BACKGROUND', (0,0), (1,0), colors.HexColor('#fff3e0')),
+            ('ALIGN', (0,0), (-1,-1), 'LEFT'),
+            ('GRID', (0,0), (-1,-1), 0.5, colors.grey),
+            ('FONTNAME', (0,0), (1,0), 'Helvetica-Bold'),
+        ]))
+        story.append(t_orc)
+        story.append(Spacer(1, 15))
+
     # --- 4. Gráficos ---
     if graph_image_path and os.path.exists(graph_image_path):
-        story.append(Paragraph("3. Análise Gráfica", section_style))
+        story.append(Paragraph("4. Análise Gráfica", section_style))
         img = Image(graph_image_path, width=480, height=220)
         story.append(img)
         story.append(Spacer(1, 15))
@@ -74,7 +117,7 @@ def generate_planck_report(filepath: str, data_summary: dict, sim_params: dict, 
     # --- 5. Notas Adicionais ---
     notas = meta_data.get("notes", "")
     if notas:
-        story.append(Paragraph("4. Observações do Pesquisador", section_style))
+        story.append(Paragraph("5. Observações do Pesquisador", section_style))
         story.append(Paragraph(notas, notes_style))
 
     doc.build(story)

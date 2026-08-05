@@ -13,7 +13,9 @@ from PySide6.QtGui import QFont
 import pyqtgraph as pg
 
 from utils.math_models import calculate_temperature, calculate_planck_constant
-from core.hardware_manager import PWS4323_Driver, DMM4050_Driver
+from core.hardware_manager import (obter_drivers, preferencias,
+                                   CHAVE_MODO_DEMONSTRACAO,
+                                   STRING_RECURSO_PWS, STRING_RECURSO_DMM)
 import pyvisa
 from ui.components.export_dialog import ExportDialog
 from utils.pdf_exporter import generate_planck_report
@@ -24,28 +26,35 @@ class ExperimentWorker(QThread):
     finished_exp = Signal(float, float, float, float, float) # h, erro, m, c, r2
     error_occurred = Signal(str)
     
-    def __init__(self, params, dmm_res, pws_res):
+    def __init__(self, params, dmm_res, pws_res, modo_demonstracao: bool = False):
         super().__init__()
         self.params = params
         self.dmm_res = dmm_res
         self.pws_res = pws_res
+        self.modo_demonstracao = modo_demonstracao
         self.is_running = True
-        
-        # Setup do ficheiro de backup (Fail-Safe)
+
+        # Setup do ficheiro de backup (Fail-Safe). Coletas simuladas usam outro
+        # prefixo: data_backup/ é o acervo de medidas reais e não pode receber
+        # dados de demonstração sem aviso.
         os.makedirs("data_backup", exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.csv_filename = f"data_backup/exp_planck_{timestamp}.csv"
+        prefixo = "demo_planck" if modo_demonstracao else "exp_planck"
+        self.csv_filename = f"data_backup/{prefixo}_{timestamp}.csv"
 
     def run(self):
-        rm = pyvisa.ResourceManager('@ivi')
+        # Em modo demonstração não se abre o ResourceManager: os drivers
+        # simulados têm a mesma interface e ignoram o argumento.
+        ClasseFonte, ClasseMultimetro = obter_drivers(self.modo_demonstracao)
+        rm = None if self.modo_demonstracao else pyvisa.ResourceManager('@ivi')
         pws = None
         dmm = None
-        
+
         try:
             # 1. Inicializar os Drivers SCPI
-            pws = PWS4323_Driver(rm, self.pws_res)
-            dmm = DMM4050_Driver(rm, self.dmm_res)
-            
+            pws = ClasseFonte(rm, self.pws_res)
+            dmm = ClasseMultimetro(rm, self.dmm_res)
+
             # Configurações de Segurança e Precisão
             pws.configure_safety_limits(max_current=2.0) # Limite de 1.5A para o filamento
             dmm.configure_dc_current(nplc=10.0) # Alta filtragem de ruído (60Hz)
@@ -310,14 +319,19 @@ class TabExperiment(QWidget):
 
     def start_experiment(self):
         # Vai buscar as strings de ligação gravadas no painel
-        from PySide6.QtCore import QSettings
-        settings = QSettings("Senac", "PlanckAutomation")
-        dmm_res = settings.value("Connection/LastDMMRes", "")
-        pws_res = settings.value("Connection/LastPWSRes", "")
-        
-        if not dmm_res or not pws_res:
-            QMessageBox.warning(self, "Aviso", "Por favor, valide a ligação aos instrumentos no Painel de Hardware primeiro.")
-            return
+        settings = preferencias()
+        modo_demonstracao = settings.value(CHAVE_MODO_DEMONSTRACAO, False, type=bool)
+
+        if modo_demonstracao:
+            # A bancada simulada dispensa validação: os recursos são fixos.
+            dmm_res, pws_res = STRING_RECURSO_DMM, STRING_RECURSO_PWS
+        else:
+            dmm_res = settings.value("Connection/LastDMMRes", "")
+            pws_res = settings.value("Connection/LastPWSRes", "")
+
+            if not dmm_res or not pws_res:
+                QMessageBox.warning(self, "Aviso", "Por favor, valide a ligação aos instrumentos no Painel de Hardware primeiro.")
+                return
 
         self.tabs.setCurrentIndex(1)
         self.btn_start.setEnabled(False)
@@ -343,10 +357,14 @@ class TabExperiment(QWidget):
         self.progress_bar.setMaximum(max(len(voltages), 1))
         self.progress_bar.setValue(0)
         
-        self.lbl_h_result.setText("Recolha em curso... Não desligue a Fonte!")
-        self.lbl_h_result.setStyleSheet("background-color: #8b0000; color: white; border-radius: 5px; padding: 10px;")
-        
-        self.worker = ExperimentWorker(params, dmm_res, pws_res)
+        if modo_demonstracao:
+            self.lbl_h_result.setText("Recolha SIMULADA em curso (sem hardware)")
+            self.lbl_h_result.setStyleSheet("background-color: #8d6e00; color: white; border-radius: 5px; padding: 10px;")
+        else:
+            self.lbl_h_result.setText("Recolha em curso... Não desligue a Fonte!")
+            self.lbl_h_result.setStyleSheet("background-color: #8b0000; color: white; border-radius: 5px; padding: 10px;")
+
+        self.worker = ExperimentWorker(params, dmm_res, pws_res, modo_demonstracao)
         self.worker.new_data_point.connect(self.update_plots)
         self.worker.finished_exp.connect(self.experiment_finished)
         self.worker.error_occurred.connect(self.handle_error)

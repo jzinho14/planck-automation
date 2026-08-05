@@ -55,8 +55,10 @@ Software/
 ├── content/
 │   └── referencias.py           # dataclass Referencia + lista REFERENCIAS (dado, não código)
 ├── core/
-│   └── hardware_manager.py      # Drivers SCPI (PWS4323, DMM4050), ScannerThread,
-│                                #   ValidatorThread, HardwareManager(QObject)
+│   ├── hardware_manager.py      # Drivers SCPI (PWS4323, DMM4050), ScannerThread,
+│   │                            #   ValidatorThread, HardwareManager(QObject),
+│   │                            #   obter_drivers()/modo_demonstracao_ativo()
+│   └── mock_hardware.py         # BancadaSimulada + Mock*_Driver (mesma interface)
 ├── ui/
 │   ├── main_window.py           # QTabWidget com 4 abas
 │   ├── theme.py                 # DARK_THEME (string QSS)
@@ -74,6 +76,7 @@ Software/
 └── data_backup/                 # CSVs de coletas reais (formato: Tensao_Fonte_V,
                                  #   Corrente_Filamento_A, Resistencia_Ohms, Temperatura_K, Fotocorrente_A)
 Tests/test_connection.py         # Scan VISA standalone (espelha o ScannerThread)
+Tests/test_mock_hardware.py      # 15 checagens da bancada simulada (roda sem hardware)
 Markdowns/project_description.md # Especificação original (4 abas; só 3 existem)
 Docs/                            # Artigo de referência + datasheets Tektronix
 ```
@@ -313,11 +316,20 @@ profiles/
 
 ## 9. Roadmap sugerido (uma fase por sessão de trabalho)
 
-1. **Fase 0 — Correções seguras (sem mudar comportamento válido):** B1, B2, B3, B7,
-   B8, B9, limpeza de B10. Testável abrindo a UI sem hardware.
-2. **Fase 1 — Testabilidade:** criar `MockPWS4323_Driver`/`MockDMM4050_Driver`
-   (mesma interface, física simulada com ruído realista) + flag "Modo demonstração"
-   na Conexão. A partir daqui tudo é testável sem bancada.
+1. ~~**Fase 0 — Correções seguras**~~ ✅ **CONCLUÍDA.** B1, B2, B3, B7, B8, B9 e a
+   limpeza de B10, um commit por bug. Também corrigido o `ScannerThread`, que tinha
+   o mesmo problema de referência do B8. Restam abertos B4, B5 e B6.
+2. ~~**Fase 1 — Testabilidade**~~ ✅ **CONCLUÍDA.** `core/mock_hardware.py` com
+   `BancadaSimulada` + `MockPWS4323_Driver`/`MockDMM4050_Driver`, e a flag
+   "Modo demonstração" na aba de Ligações (persistida em QSettings).
+   - `k_rad`/`k_cond` do balanço de energia vieram de mínimos quadrados sobre os
+     1127 pontos úteis dos CSVs reais (resíduo mediano de 2,9% em potência),
+     reescalados para o filamento virtual bater 2540 K em 12 V.
+   - O mock **reproduz de propósito** o piso de ~4,5 nA do DMM: numa varredura
+     completa (0,5–12 V) o h sai ~76% errado, e restrito à região de Wien
+     (6–12 V) sai a ~3%. É a reprodução fiel de A5/B6 — o alvo das Fases 2 e 3.
+   - Coletas simuladas gravam `data_backup/demo_planck_*.csv`, separadas do
+     acervo real `exp_planck_*.csv`.
 3. **Fase 2 — Correções de física:** A2 (correção de R0 pela Eq. 11), A3 (presets de
    coeficientes), A4 (readback de V, campo R_cabos), A5 (guards de T + filtro de
    região de Wien com feedback visual).

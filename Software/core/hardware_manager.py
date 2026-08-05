@@ -1,6 +1,38 @@
 import pyvisa
 import time # Certifique-se de que o time está importado aqui no topo
-from PySide6.QtCore import QObject, QThread, Signal
+from PySide6.QtCore import QObject, QSettings, QThread, Signal
+
+from core.mock_hardware import (MockPWS4323_Driver, MockDMM4050_Driver,
+                                STRING_RECURSO_PWS, STRING_RECURSO_DMM)
+
+# --- CONFIGURAÇÃO PERSISTENTE ---
+# Nome da organização/aplicação do QSettings, num só lugar em vez de repetido
+# como string mágica em cada arquivo que precisa ler a configuração.
+ORGANIZACAO = "Senac"
+APLICACAO = "PlanckAutomation"
+CHAVE_MODO_DEMONSTRACAO = "Connection/DemoMode"
+
+
+def preferencias() -> QSettings:
+    return QSettings(ORGANIZACAO, APLICACAO)
+
+
+def modo_demonstracao_ativo() -> bool:
+    """Modo demonstração: o software roda com a bancada simulada, sem VISA."""
+    return preferencias().value(CHAVE_MODO_DEMONSTRACAO, False, type=bool)
+
+
+def obter_drivers(modo_demonstracao: bool) -> tuple:
+    """
+    Escolhe o par de drivers conforme o modo.
+
+    Os mocks têm a mesma interface dos reais, então quem consome não precisa
+    saber qual dos dois recebeu — só instancia e usa.
+    """
+    if modo_demonstracao:
+        return MockPWS4323_Driver, MockDMM4050_Driver
+    return PWS4323_Driver, DMM4050_Driver
+
 
 # --- DRIVERS SCPI DOS INSTRUMENTOS ---
 
@@ -82,12 +114,21 @@ class ScannerThread(QThread):
     resources_found = Signal(list, list)
 
     def run(self):
+        # Em modo demonstração não há barramento para varrer: oferecemos os
+        # dois instrumentos simulados e saímos.
+        if modo_demonstracao_ativo():
+            self.resources_found.emit(
+                [("PWS4323 (simulado)", STRING_RECURSO_PWS)],
+                [("DMM4050 (simulado)", STRING_RECURSO_DMM)],
+            )
+            return
+
         try:
             rm = pyvisa.ResourceManager('@ivi')
             resources = rm.list_resources()
         except Exception:
             resources = []
-        
+
         pws_items = []
         dmm_items = []
         
@@ -130,7 +171,15 @@ class ValidatorThread(QThread):
         if not self.resource_string:
             self.validation_result.emit(self.device_id, False, "Recurso vazio")
             return
-            
+
+        # Instrumento simulado: responde o *IDN? sem passar por VISA.
+        if self.resource_string.upper().startswith("DEMO::"):
+            self.validation_result.emit(
+                self.device_id, True,
+                "SIMULADO,Bancada virtual,modo demonstracao,-"
+            )
+            return
+
         try:
             rm = pyvisa.ResourceManager('@ivi')
             inst = rm.open_resource(self.resource_string)

@@ -17,9 +17,10 @@ antiga:
 A janela antiga continua disponível (ver `main.py`) enquanto a migração é
 validada na bancada real.
 """
-from PySide6.QtWidgets import QWidget, QVBoxLayout, QHBoxLayout, QFrame
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFrame,
+                               QApplication)
 from PySide6.QtGui import QCloseEvent
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QEvent, QTimer
 
 from qfluentwidgets import (FluentWindow, FluentIcon, NavigationItemPosition,
                             BodyLabel, CaptionLabel, StrongBodyLabel,
@@ -90,7 +91,6 @@ class JanelaPlanck(FluentWindow):
         setThemeColor("#1565C0")
 
         self.setWindowTitle("Planck Automation — Constante de Planck por radiação de corpo negro")
-        self.resize(1280, 820)
 
         self.hw_manager = HardwareManager()
 
@@ -99,6 +99,121 @@ class JanelaPlanck(FluentWindow):
         self._montar_paginas()
 
         self.atualizar_cabecalho()
+
+        # A geometria vem POR ÚLTIMO, e a ordem não é detalhe: dimensionar
+        # antes de montar as páginas não adianta, porque o layout recalcula ao
+        # receber os widgets e estica a janela até o sizeHint do conteúdo — que
+        # aqui chega a 1055 px de altura, mais que muitas telas.
+        self._ajustar_geometria()
+
+    # -- geometria -----------------------------------------------------------
+
+    LARGURA_DESEJADA = 1280
+    ALTURA_DESEJADA = 820
+    FRACAO_MAXIMA = 0.92     # da área útil, deixando respiro para a barra de tarefas
+
+    def _ajustar_geometria(self):
+        """
+        Dimensiona e CENTRALIZA a janela na área útil da tela.
+
+        Numa janela sem moldura isto não é cosmético: quem arrasta a janela é a
+        barra de título desenhada por nós. Se ela nascer fora da tela, o
+        operador não tem como trazer a janela de volta — nem pela borda, que
+        também não existe. Já aconteceu: a janela abriu com só o canto inferior
+        esquerdo visível e ficou impossível de usar.
+
+        Por isso a posição é calculada explicitamente em vez de deixada ao
+        gerenciador de janelas, e o tamanho é limitado à área disponível.
+        """
+        tela = QApplication.primaryScreen()
+        if tela is None:
+            self.resize(self.LARGURA_DESEJADA, self.ALTURA_DESEJADA)
+            return
+
+        disponivel = tela.availableGeometry()
+        largura = min(self.LARGURA_DESEJADA,
+                      int(disponivel.width() * self.FRACAO_MAXIMA))
+        altura = min(self.ALTURA_DESEJADA,
+                     int(disponivel.height() * self.FRACAO_MAXIMA))
+
+        # Mínimo que ainda deixa a interface utilizável, sem passar da tela.
+        self.setMinimumSize(min(940, largura), min(620, altura))
+
+        # setGeometry num golpe só: tamanho e posição juntos, centrados na área
+        # útil. Usar resize() e move() separados deixa uma janela intermediária
+        # com o tamanho novo na posição velha, que pode cair fora da tela.
+        self.setGeometry(
+            disponivel.x() + max(0, (disponivel.width() - largura) // 2),
+            disponivel.y() + max(0, (disponivel.height() - altura) // 2),
+            largura, altura)
+
+    def _dentro_da_tela(self) -> bool:
+        """
+        A BARRA DE TÍTULO está visível em alguma tela?
+
+        O critério não é "quanto da janela aparece", e sim se o canto superior
+        esquerdo está na área útil. Numa janela sem moldura, a barra de título
+        é o único lugar por onde se arrasta: com ela fora da tela, a janela
+        pode estar 80% visível e ainda assim ser impossível de mover.
+        """
+        canto = self.frameGeometry().topLeft()
+        return any(tela.availableGeometry().contains(canto)
+                   for tela in QApplication.screens())
+
+    def mostrar(self):
+        """
+        Abre maximizada, ocupando a área útil da tela.
+
+        É o modo mais seguro para esta janela: sem moldura, ela depende da
+        própria barra de título para ser movida, e maximizada essa barra está
+        sempre visível.
+
+        A dança de três passos abaixo não é firula. Geometria aplicada ANTES do
+        primeiro `show()` é descartada — o layout recalcula ao receber os
+        widgets e estica a janela até o `sizeHint` do conteúdo, que aqui passa
+        de 1100 px de altura. Então: mostra-se primeiro, fixa-se a geometria
+        (que agora gruda) e só então maximiza. O valor fixado no meio é o que o
+        Qt guarda como tamanho de restauração, e é por isso que o botão de
+        restaurar devolve uma janela centrada e utilizável.
+        """
+        self.show()
+        self._ajustar_geometria()
+        self.showMaximized()
+
+    def showEvent(self, evento):
+        """Rede de segurança: se a janela nasceu fora da tela, traz de volta."""
+        super().showEvent(evento)
+        if not self.isMaximized() and not self._dentro_da_tela():
+            self._ajustar_geometria()
+
+    def changeEvent(self, evento):
+        """
+        Ao sair do modo maximizado, reenquadra a janela.
+
+        O tamanho de restauração que o Qt guarda vem do `sizeHint` do conteúdo,
+        que aqui passa de 1100 px de altura — maior que muitas telas. Sem este
+        reenquadramento, clicar em "restaurar" devolveria exatamente a janela
+        inutilizável que motivou toda esta seção.
+
+        O reajuste é adiado com um disparo de tempo zero porque, durante o
+        evento, o Qt ainda está aplicando a geometria antiga.
+        """
+        super().changeEvent(evento)
+        if evento.type() == QEvent.WindowStateChange and not self.isMaximized():
+            QTimer.singleShot(0, self._reenquadrar_se_preciso)
+
+    def _reenquadrar_se_preciso(self):
+        if self.isMaximized() or self.isMinimized():
+            return
+        tela = QApplication.primaryScreen()
+        if tela is None:
+            return
+        disponivel = tela.availableGeometry()
+        moldura = self.frameGeometry()
+        cabe = (moldura.width() <= disponivel.width()
+                and moldura.height() <= disponivel.height())
+        if not cabe or not self._dentro_da_tela():
+            self._ajustar_geometria()
 
     # -- estrutura -----------------------------------------------------------
 

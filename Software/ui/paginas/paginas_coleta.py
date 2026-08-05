@@ -49,7 +49,7 @@ class PaginaBancada(PaginaExecucaoBase):
         super()._montar()
         # Aviso de segurança fica no topo, acima dos controles: numa página de
         # bancada, o estado do hardware não pode depender de rolagem.
-        self.layout().insertWidget(0, self._faixa_seguranca())
+        self._coluna.insertWidget(0, self._faixa_seguranca())
 
     def _faixa_seguranca(self) -> CardWidget:
         """

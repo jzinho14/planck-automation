@@ -36,7 +36,7 @@ app = QApplication(sys.argv)
 arquivos_antes = set(glob.glob("data_backup/*"))
 
 janela = JanelaPlanck()
-janela.show()
+janela.mostrar()
 
 print("1. Navegação sem abas dentro de abas")
 
@@ -51,10 +51,39 @@ sub_abas = [p for p in (janela.pagina_simulacao, janela.pagina_bancada)
             if p.findChildren(QTabWidget)]
 checa(not sub_abas, "nenhuma página de coleta tem sub-abas")
 
-print("\n2. Estado dos instrumentos, discreto e sempre visível")
+print("\n2. Geometria: a janela precisa caber e ser arrastável")
 
-janela.resize(1280, 820)
 app.processEvents()
+disponivel = app.primaryScreen().availableGeometry()
+checa(janela.isMaximized(), "abre maximizada, ocupando a área útil")
+
+# A regressão que motivou este bloco: a janela nasceu com só o canto inferior
+# esquerdo na tela. Sem moldura, isso a torna impossível de arrastar de volta.
+# Verificamos o estado RESTAURADO, que é o que o botão de restaurar devolve.
+janela.showNormal()
+app.processEvents()
+moldura = janela.frameGeometry()
+checa(moldura.width() <= disponivel.width()
+      and moldura.height() <= disponivel.height(),
+      "restaurada, cabe inteira na área útil",
+      f"{moldura.width()}x{moldura.height()} numa tela de "
+      f"{disponivel.width()}x{disponivel.height()}")
+checa(janela._dentro_da_tela(),
+      "e com o canto superior esquerdo visível — logo, arrastável",
+      f"({moldura.x()},{moldura.y()})")
+
+alturas = {janela.stackedWidget.widget(i).objectName():
+           janela.stackedWidget.widget(i).minimumSizeHint().height()
+           for i in range(janela.stackedWidget.count())}
+mais_alta = max(alturas, key=alturas.get)
+checa(alturas[mais_alta] < 620,
+      "nenhuma página exige mais altura que uma tela pequena",
+      f"maior mínimo: {mais_alta} com {alturas[mais_alta]} px")
+
+janela.showMaximized()
+app.processEvents()
+
+print("\n2b. Estado dos instrumentos, discreto e sempre visível")
 
 checa(hasattr(janela, "lbl_estado"), "há um indicador de estado na barra de título")
 checa(janela.lbl_estado.parent() is janela.titleBar,

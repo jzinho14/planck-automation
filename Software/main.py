@@ -35,7 +35,13 @@ def main() -> int:
         from ui.janela_fluent import JanelaPlanck
         janela = JanelaPlanck()
 
-    janela.show()
+    # A janela Fluent abre maximizada: sem moldura, ela depende da propria
+    # barra de titulo para ser arrastada, e maximizada essa barra esta sempre
+    # visivel. A classica tem moldura do sistema e abre normal.
+    if hasattr(janela, "mostrar"):
+        janela.mostrar()
+    else:
+        janela.show()
     return app.exec()
 
 

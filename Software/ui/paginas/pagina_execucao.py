@@ -15,13 +15,13 @@ import os
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
-                               QMessageBox, QTextEdit)
+                               QMessageBox, QTextEdit, QFrame)
 from PySide6.QtCore import Qt
 
 from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, TitleLabel,
                             StrongBodyLabel, CaptionLabel, PushButton,
                             PrimaryPushButton, ProgressBar, InfoBar,
-                            InfoBarPosition, FluentIcon)
+                            InfoBarPosition, FluentIcon, ScrollArea)
 
 from utils.math_models import selecionar_pontos_validos
 from ui.components.indicadores import (Indicador, SeloVeredicto, BarraOrcamento,
@@ -51,12 +51,34 @@ class PaginaExecucaoBase(QWidget):
     # -- construção ----------------------------------------------------------
 
     def _montar(self):
-        layout = QVBoxLayout(self)
-        layout.setSpacing(12)
+        """
+        Conteúdo dentro de uma área rolável.
 
-        layout.addWidget(self._cartao_controle())
-        layout.addWidget(self._cartao_resultado())
-        layout.addWidget(self._cartao_graficos(), stretch=1)
+        Esta página é legitimamente alta: faixa de segurança, controles, cartão
+        de resultado, três gráficos e o registro. Somando os mínimos, ela pedia
+        mais de 1000 px de altura — mais que muitas telas. Sem rolagem, a
+        janela era forçada a crescer além do monitor e nascia parcialmente fora
+        dele; numa janela sem moldura, isso a torna impossível de arrastar de
+        volta. A rolagem resolve na origem: a página encolhe até o que couber.
+        """
+        externo = QVBoxLayout(self)
+        externo.setContentsMargins(0, 0, 0, 0)
+
+        area = ScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.enableTransparentBackground()
+
+        conteudo = QWidget()
+        self._coluna = QVBoxLayout(conteudo)
+        self._coluna.setSpacing(12)
+
+        self._coluna.addWidget(self._cartao_controle())
+        self._coluna.addWidget(self._cartao_resultado())
+        self._coluna.addWidget(self._cartao_graficos(), stretch=1)
+
+        area.setWidget(conteudo)
+        externo.addWidget(area)
 
     def _cartao_controle(self) -> CardWidget:
         cartao = CardWidget(self)
@@ -156,6 +178,7 @@ class PaginaExecucaoBase(QWidget):
         pg.setConfigOption('background', '#202020')
         pg.setConfigOption('foreground', '#d4d4d4')
         self.graficos = pg.GraphicsLayoutWidget()
+        self.graficos.setMinimumHeight(360)
 
         self.plot_temp = self.graficos.addPlot(title="Temperatura do filamento (K)")
         self.plot_temp.setLabel('left', "T (K)")
@@ -199,6 +222,7 @@ class PaginaExecucaoBase(QWidget):
         self.registro = QTextEdit()
         self.registro.setReadOnly(True)
         self.registro.setMinimumWidth(320)
+        self.registro.setMinimumHeight(260)
         self.registro.setStyleSheet(estilo_terminal())
         self.registro.setHtml(cabecalho_registro())
         coluna.addWidget(self.registro)

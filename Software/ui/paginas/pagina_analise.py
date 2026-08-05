@@ -19,12 +19,14 @@ Faz quatro coisas sobre coletas já gravadas:
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
-                               QListWidget, QListWidgetItem, QAbstractItemView)
+                               QListWidget, QListWidgetItem, QAbstractItemView,
+                               QFrame)
 from PySide6.QtCore import Qt
 
 from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, StrongBodyLabel,
                             CaptionLabel, PushButton, PrimaryPushButton, TextEdit,
-                            FluentIcon, InfoBar, InfoBarPosition, SegmentedWidget)
+                            FluentIcon, InfoBar, InfoBarPosition, SegmentedWidget,
+                            ScrollArea)
 
 from ui.components.indicadores import estilo_terminal
 from core import carregador
@@ -47,7 +49,17 @@ class PaginaAnalise(QWidget):
     # -- construção ----------------------------------------------------------
 
     def _montar(self):
-        layout = QVBoxLayout(self)
+        """Conteúdo rolável, pela mesma razão das páginas de coleta."""
+        externo = QVBoxLayout(self)
+        externo.setContentsMargins(0, 0, 0, 0)
+
+        area = ScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+        area.enableTransparentBackground()
+
+        conteudo = QWidget()
+        layout = QVBoxLayout(conteudo)
         layout.setSpacing(12)
 
         layout.addWidget(self._cartao_coletas())
@@ -56,6 +68,9 @@ class PaginaAnalise(QWidget):
         inferior.addWidget(self._cartao_graficos(), stretch=3)
         inferior.addWidget(self._cartao_relatorio(), stretch=2)
         layout.addLayout(inferior, stretch=1)
+
+        area.setWidget(conteudo)
+        externo.addWidget(area)
 
     def _cartao_coletas(self) -> HeaderCardWidget:
         cartao = HeaderCardWidget(self)
@@ -108,6 +123,7 @@ class PaginaAnalise(QWidget):
         pg.setConfigOption('background', '#202020')
         pg.setConfigOption('foreground', '#d4d4d4')
         self.graficos = pg.GraphicsLayoutWidget()
+        self.graficos.setMinimumHeight(320)
         self.plot = self.graficos.addPlot()
         self.plot.addLegend(offset=(-10, 10))
 
@@ -123,6 +139,7 @@ class PaginaAnalise(QWidget):
         vertical = QVBoxLayout(corpo)
         self.relatorio = TextEdit()
         self.relatorio.setReadOnly(True)
+        self.relatorio.setMinimumHeight(320)
         self.relatorio.setStyleSheet(estilo_terminal())
         self.relatorio.setPlainText(
             "Escolha uma ou mais coletas acima e use “Analisar selecionadas”.\n\n"

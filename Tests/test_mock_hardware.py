@@ -22,7 +22,9 @@ from core.mock_hardware import (MockPWS4323_Driver, MockDMM4050_Driver,
                                 BancadaSimulada, reconfigurar_bancada,
                                 ANCORA_TEMPERATURA, ANCORA_FOTOCORRENTE,
                                 T_AMBIENTE, DMM_FUGA)
-from utils.math_models import calculate_temperature, calculate_planck_constant, H_REF
+from utils.math_models import (calculate_temperature, calculate_planck_constant,
+                               selecionar_pontos_validos, H_REF,
+                               TEMPERATURA_MINIMA_PADRAO)
 
 FALHAS = []
 
@@ -127,15 +129,30 @@ checa(erro < 5.0, "na região de Wien (6–12 V) h sai a menos de 5% do valor re
       f"h={h:.4e} J·s, erro {erro:.2f}%, R²={r2:.4f}")
 checa(r2 > 0.99, "a regressão na região de Wien é linear", f"R²={r2:.4f}")
 
-# Este NÃO é um defeito do mock: é o defeito A5/B6 do software, reproduzido de
-# propósito. Os pontos frios são piso de 4,5 nA, passam no limiar de 1 nA da
-# regressão e a envenenam. As Fases 2 e 3 é que corrigem isso — e este teste
-# vira a prova de que corrigiram.
+# O par de checagens abaixo é o critério de aceitação da correção A5.
+#
+# Antes da Fase 2 uma varredura completa saía ~76% errada, porque os pontos
+# frios são piso do multímetro, passavam no limiar de 1 nA e envenenavam a
+# reta. O corte por temperatura mínima é o que conserta isso — e conserta SEM
+# encurtar a varredura: coleta-se de 0,5 a 12 V, regride-se só o que informa.
 T, L = varredura(0.5, 12.0, 0.5)
-h_todos, erro_todos, _, _, r2_todos = calculate_planck_constant(T, L, 590.0)
-checa(erro_todos > 20.0,
-      "varredura completa ainda erra feio (A5/B6 por corrigir na Fase 2/3)",
-      f"h={h_todos:.4e}, erro {erro_todos:.1f}%, R²={r2_todos:.4f}")
+
+h_sem, erro_sem, _, _, r2_sem = calculate_planck_constant(T, L, 590.0, t_minima=0.0)
+checa(erro_sem > 20.0,
+      "sem corte, a varredura completa continua errando feio (o defeito existe)",
+      f"h={h_sem:.4e}, erro {erro_sem:.1f}%, R²={r2_sem:.4f}")
+
+h_com, erro_com, _, _, r2_com = calculate_planck_constant(
+    T, L, 590.0, t_minima=TEMPERATURA_MINIMA_PADRAO)
+checa(erro_com < 10.0,
+      "com o corte da região de Wien, a MESMA varredura completa acerta (A5)",
+      f"h={h_com:.4e}, erro {erro_com:.1f}%, R²={r2_com:.4f}")
+checa(r2_com > 0.99, "e a regressão volta a ser linear", f"R²={r2_com:.4f}")
+
+descartados = int(np.sum(~selecionar_pontos_validos(T, L, TEMPERATURA_MINIMA_PADRAO)))
+checa(0 < descartados < len(T),
+      "o corte descarta parte dos pontos, não todos nem nenhum",
+      f"{descartados} de {len(T)} fora da regressão")
 
 T1, L1 = varredura(6.0, 12.0, 0.5, semente=42)
 T2, L2 = varredura(6.0, 12.0, 0.5, semente=42)

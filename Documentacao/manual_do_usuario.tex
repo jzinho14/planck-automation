@@ -311,9 +311,50 @@ durante a coleta --- mas isso não substitui a conferência da montagem.
 A sub-aba \campo{1. Parâmetros Reais} tem dois grupos.
 
 \paragraph{Calibração Física do Filamento.}
-Os mesmos quatro campos da simulação: $R_0$, $\alpha$, $\beta$ e $\lambda$. São
-eles que convertem a resistência medida em temperatura e a inclinação da reta
-em $h$.
+
+\begin{center}
+\begin{tabular}{@{}p{4.6cm}p{2.2cm}p{7.5cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Padrão} & \textbf{O que é} \\
+\midrule
+Preset de coeficientes & Padrão do software &
+Preenche $\alpha$ e $\beta$ com um par de valores conhecido. Passe o mouse
+sobre a caixa para ver a fonte de cada preset. \\[0.3em]
+Resistência a frio medida & 1,2~$\Omega$ &
+O valor que o ohmímetro lê no filamento em repouso. \\[0.3em]
+Temperatura ambiente & 25~°C &
+A temperatura em que a medida acima foi feita. \\[0.3em]
+Coef. linear $\alpha$ & 5,23e-3~K$^{-1}$ & Vem do preset; editável. \\[0.3em]
+Coef. quadrático $\beta$ & 7,0e-7~K$^{-2}$ & Vem do preset; editável. \\[0.3em]
+Comprimento de onda $\lambda$ & 590~nm &
+Comprimento de onda característico do LED sensor. \\[0.3em]
+Resistência dos cabos & 0~$\Omega$ &
+A medição é a dois fios, então a resistência dos cabos entra somada à do
+filamento. Meça curto-circuitando as pontas e informe aqui; deixe zero se não
+souber. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{aviso}
+\textbf{Por que existem dois campos para a resistência a frio.} O modelo
+define $R_0$ como a resistência a \textbf{0~°C}, mas você mede o filamento na
+temperatura ambiente, onde ele já está cerca de 13\% mais resistivo. O
+software faz essa conversão para você --- basta informar em que temperatura a
+medida foi feita. Logo abaixo dos campos, uma linha azul mostra o $R_0$
+resultante, que é o valor efetivamente usado no cálculo.
+
+Informar a temperatura ambiente errada desloca \emph{todas} as temperaturas
+calculadas, e com elas o valor de $h$.
+\end{aviso}
+
+\paragraph{Escolhendo o preset de coeficientes.}
+Os coeficientes $\alpha$ e $\beta$ entram direto no cálculo da temperatura. O
+preset \campo{Padrão do software} traz o par que sempre foi usado --- e com o
+qual todas as coletas históricas foram processadas --- mas cuja procedência não
+está documentada. O preset \campo{Artigo RBEF / PHYWE} traz os valores do
+artigo de referência, com fonte citada. Para medidas novas, prefira um preset
+com fonte conhecida; para reprocessar dados antigos, mantenha o padrão.
 
 \paragraph{Varredura SCPI.}
 
@@ -328,7 +369,11 @@ Passo de tensão & 0,5~V & Incremento entre pontos. \\[0.3em]
 Estabilização térmica & 3000~ms &
 \textbf{Tempo de espera em cada ponto antes de medir.} O filamento leva
 segundos para atingir o equilíbrio térmico; medir antes disso produz
-temperaturas erradas. \\
+temperaturas erradas. \\[0.3em]
+Temp. mínima p/ regressão & 1800~K &
+\textbf{Só entram no cálculo de $h$ os pontos acima desta temperatura.} Não
+afeta a coleta: todos os pontos continuam sendo medidos e gravados. Ver
+seção~\ref{sec:faixa}. \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -378,9 +423,16 @@ o que já foi medido está salvo. As colunas são:
 \texttt{Resistencia\_Ohms} & $R = V/i$, em ohms \\
 \texttt{Temperatura\_K} & Temperatura calculada do filamento, em kelvin \\
 \texttt{Fotocorrente\_A} & Corrente do LED lida no multímetro, em ampères \\
+\texttt{Tensao\_Medida\_V} & Tensão lida de volta da fonte, em volts \\
 \bottomrule
 \end{tabular}
 \end{center}
+
+A última coluna é a tensão realmente presente nos terminais, lida da fonte, e é
+ela que o software usa para calcular a resistência --- a leitura de retorno é
+mais exata que o valor programado. As duas ficam gravadas para que você possa
+conferir a diferença depois. As cinco primeiras colunas mantêm a ordem
+histórica, então arquivos antigos continuam legíveis pelas mesmas ferramentas.
 
 % =============================================================
 \section{Lendo os resultados}
@@ -431,12 +483,50 @@ resultado}, porque eles entram como se fossem medidas legítimas e puxam a
 reta. O sintoma característico é um $R^2$ baixo acompanhado de um $h$ muito
 distante do esperado.
 
+\subsection{Como o software resolve isso}
+
+\textbf{O corte é feito na conta, não na coleta.} Você varre a faixa que
+quiser --- inclusive de 0 a 12~V --- e todos os pontos são medidos, mostrados e
+gravados no CSV. Apenas a regressão final usa a região informativa,
+determinada pelo campo \campo{Temp. mínima p/ regressão}.
+
+Isso significa que não é preciso escolher entre registrar o comportamento
+completo do filamento e obter um bom valor de $h$: dá para ter os dois.
+
+\paragraph{O que você vê na tela.}
+No gráfico de linearização, os pontos aparecem em duas cores:
+
+\begin{itemize}[nosep]
+  \item \textbf{coloridos} --- entraram na regressão;
+  \item \textbf{cinza} --- foram descartados por estarem fora da região de
+        Wien (ou por temperatura fisicamente impossível).
+\end{itemize}
+
+O registro em tempo real marca cada linha descartada, e o painel de status ao
+final informa quantos pontos de quantos foram efetivamente usados. Essa
+contagem também vai para o relatório PDF.
+
+\paragraph{O efeito, em números.}
+Uma varredura completa de 0 a 12~V com 49 pontos, na bancada simulada:
+
+\begin{center}
+\begin{tabular}{@{}lrrr@{}}
+\toprule
+\textbf{Temp. mínima} & \textbf{Pontos usados} & \textbf{Erro em $h$} & \textbf{$R^2$} \\
+\midrule
+0~K (sem corte) & 49 de 49 & 99{,}0\% & 0{,}062 \\
+1800~K (padrão) & 29 de 49 & 5{,}6\% & 0{,}997 \\
+2000~K & 23 de 49 & 3{,}1\% & 0{,}999 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
 \begin{aviso}
-\textbf{Recomendação prática.} Você pode varrer a faixa inteira que quiser ---
-inclusive de 0 a 12~V --- para registrar o comportamento completo do filamento.
-Mas, ao avaliar o valor de $h$, confira o $R^2$: se ele estiver baixo, refaça a
-leitura considerando apenas a região quente. O CSV guarda todos os pontos, então
-nada se perde.
+\textbf{Ajustando o corte.} O padrão de 1800~K funciona bem para a montagem
+típica. Se o seu filamento ou LED forem diferentes, use o gráfico como guia:
+suba o valor até que os pontos cinza cubram toda a região onde a curva de
+fotocorrente está achatada no ruído. Colocar 0 desliga o corte e usa tudo ---
+útil para ver o problema acontecer, não para medir.
 \end{aviso}
 
 % =============================================================
@@ -511,17 +601,20 @@ Três botões acompanham cada ficha:
     aparelho resolve.
 
   \item[O resultado de $h$ saiu muito distante do esperado]
-    Verifique o $R^2$. Se estiver baixo, provavelmente a varredura incluiu
-    pontos frios demais --- veja a seção~\ref{sec:faixa}. Se o $R^2$ estiver
-    alto mas $h$ ainda estiver deslocado, o problema tende a ser de calibração:
-    o valor de $R_0$ e o comprimento de onda do LED são os parâmetros que mais
-    influenciam o resultado.
+    Verifique quantos pontos entraram na regressão, no painel de status. Se
+    forem quase todos os coletados numa varredura que começou em tensão baixa,
+    aumente a \campo{Temp. mínima p/ regressão} --- veja a
+    seção~\ref{sec:faixa}. Se o $R^2$ estiver alto e a contagem parecer
+    razoável mas $h$ ainda estiver deslocado, o problema tende a ser de
+    calibração: a resistência a frio (com sua temperatura ambiente), os
+    coeficientes escolhidos e o comprimento de onda do LED são os parâmetros
+    que mais influenciam o resultado.
 
   \item[Temperaturas absurdas em tensão baixa]
     Em tensões próximas de zero, a resistência medida pode ficar abaixo de
     $R_0$, e o modelo devolve temperaturas sem sentido físico (por exemplo,
-    77~K). Esses pontos devem ser desconsiderados; não indicam falha do
-    equipamento.
+    77~K). Isso é esperado e não indica falha do equipamento: esses pontos
+    aparecem em cinza no gráfico e são automaticamente excluídos da regressão.
 
   \item[A janela fechou durante a coleta]
     O software interrompe a varredura e desliga a fonte com segurança antes de

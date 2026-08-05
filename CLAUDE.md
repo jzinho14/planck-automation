@@ -53,7 +53,8 @@ ao final → h, erro relativo e R².
 Software/
 ├── main.py                      # QApplication + Fusion + tema QSS escuro
 ├── content/
-│   └── referencias.py           # dataclass Referencia + lista REFERENCIAS (dado, não código)
+│   ├── referencias.py           # dataclass Referencia + lista REFERENCIAS (dado, não código)
+│   └── filamentos.py            # presets de α/β com fonte citada (A3; vira JSON na Fase 4)
 ├── core/
 │   ├── hardware_manager.py      # Drivers SCPI (PWS4323, DMM4050), ScannerThread,
 │   │                            #   ValidatorThread, HardwareManager(QObject),
@@ -76,7 +77,8 @@ Software/
 └── data_backup/                 # CSVs de coletas reais (formato: Tensao_Fonte_V,
                                  #   Corrente_Filamento_A, Resistencia_Ohms, Temperatura_K, Fotocorrente_A)
 Tests/test_connection.py         # Scan VISA standalone (espelha o ScannerThread)
-Tests/test_mock_hardware.py      # 15 checagens da bancada simulada (roda sem hardware)
+Tests/test_mock_hardware.py      # 17 checagens da bancada simulada (roda sem hardware)
+Tests/test_math_models.py        # 22 checagens do modelo fisico (A2, A5, regressao)
 Markdowns/project_description.md # Especificação original (4 abas; só 3 existem)
 Docs/                            # Artigo de referência + datasheets Tektronix
 ```
@@ -330,9 +332,29 @@ profiles/
      (6–12 V) sai a ~3%. É a reprodução fiel de A5/B6 — o alvo das Fases 2 e 3.
    - Coletas simuladas gravam `data_backup/demo_planck_*.csv`, separadas do
      acervo real `exp_planck_*.csv`.
-3. **Fase 2 — Correções de física:** A2 (correção de R0 pela Eq. 11), A3 (presets de
-   coeficientes), A4 (readback de V, campo R_cabos), A5 (guards de T + filtro de
-   região de Wien com feedback visual).
+3. ~~**Fase 2 — Correções de física**~~ ✅ **CONCLUÍDA.**
+   - **A2** — `corrigir_r0_para_zero_celsius` (Eq. 11). A UI pede "resistência a
+     frio medida" + "temperatura ambiente (°C)" e mostra ao vivo o R0 resultante.
+     A 25 °C são ~13% de viés removidos.
+   - **A3** — `content/filamentos.py` com dois presets **e a fonte de cada um**.
+     O padrão continua sendo α=5.23e-3/β=7.0e-7 (procedência não documentada, mas
+     é com ele que todo o `data_backup/` foi processado); o do artigo
+     (4.82e-3/6.76e-7) está disponível na lista. **Trocar o padrão é decisão do
+     usuário, não minha.**
+   - **A4** — `PWS4323_Driver.measure_voltage()` (`MEAS:VOLT?`); o worker calcula
+     `R = V_medida/i − R_cabos`, com campo de R_cabos na UI e fallback para o
+     setpoint se o readback falhar. Nova coluna `Tensao_Medida_V` **ao final** do
+     CSV, para não mexer na ordem das 5 históricas.
+   - **A5** — `selecionar_pontos_validos()`: descarta T≤0/NaN, aplica corte de
+     região de Wien (padrão 1800 K, configurável) e o limiar de corrente. Pontos
+     descartados aparecem **em cinza** nos gráficos das duas abas, marcados no log
+     e contados no status e no PDF.
+   - **O corte é na regressão, não na varredura**: dá para varrer 0–12 V e ainda
+     assim ter bom h. Medido: a mesma varredura completa vai de 99,0% de erro
+     (sem corte) para 5,6% (corte em 1800 K), com R² de 0,062 → 0,997.
+   - `Tests/test_math_models.py` (22 checagens) + o critério de aceitação do A5
+     fixado em `Tests/test_mock_hardware.py`.
+   - **Aberto:** A6, A7, A8 (documentação/incerteza — Fase 3), A9, A10.
 4. **Fase 3 — Teoria de erros:** `utils/error_models.py` + WLS/ODR + testes
    unitários + exibição `h ± U` + orçamento de incertezas (§6).
 5. **Fase 4 — Perfis modulares (§8)** e página Parâmetros unificada.

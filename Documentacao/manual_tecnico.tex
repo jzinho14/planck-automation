@@ -296,6 +296,28 @@ R(T_c) = R_0\,\bigl(1 + \alpha T_c + \beta T_c^2\bigr)
 \label{eq:rt}
 \end{equation}
 
+\subsubsection*{$R_0$ é a resistência a 0 °C, não a medida a frio}
+
+A equação~\eqref{eq:rt} define $R_0$ como a resistência em $T_c = 0$~°C. O
+operador, porém, mede o filamento frio na temperatura \emph{ambiente}, onde a
+resistência já é cerca de 13\% maior. Usar a medida diretamente como $R_0$
+enviesa todas as temperaturas --- e portanto $h$.
+
+A conversão é a própria equação~\eqref{eq:rt} invertida na temperatura em que
+a medida foi feita:
+
+\begin{equation}
+R_0 = \frac{R(T_{\text{amb}})}{1 + \alpha T_{\text{amb}} + \beta T_{\text{amb}}^2}
+\label{eq:r0}
+\end{equation}
+
+É o que faz \texttt{corrigir\_r0\_para\_zero\_celsius}. A interface pede os
+dois valores --- a resistência medida e a temperatura em que foi medida --- e
+exibe ao vivo o $R_0$ resultante, que é o valor efetivamente usado no cálculo.
+Para 1{,}2~$\Omega$ medidos a 25~°C, $R_0 = 1{,}0608~\Omega$.
+
+\subsubsection*{Invertendo o modelo}
+
 O experimento mede $R$ e precisa de $T$. Reorganizando a
 equação~\eqref{eq:rt} como uma equação do segundo grau em $T_c$:
 
@@ -318,11 +340,18 @@ T[\mathrm{K}] = T_c + 273{,}15
 vetorizada.
 
 \begin{nota}
-\textbf{Limite conhecido.} Quando a resistência medida fica \emph{abaixo} de
-$R_0$ --- o que acontece em tensões próximas de zero --- a
+\textbf{Onde a inversão engana.} Quando a resistência medida fica
+\emph{abaixo} de $R_0$ --- o que acontece em tensões próximas de zero --- a
 equação~\eqref{eq:bhaskara} ainda tem solução matemática, mas ela não tem
 sentido físico. É a origem das temperaturas da ordem de 77~K que aparecem no
-início das varreduras completas.
+início das varreduras completas. Em casos extremos ($R$ negativa) chega a
+produzir kelvin negativo.
+
+O discriminante só fica negativo para resistências muito abaixo de $R_0$;
+nesse caso a função devolve NaN, ponto a ponto, em vez de lixo. Mas o caso
+comum --- a raiz real e absurda --- não é barrado aqui: quem o descarta é a
+seleção de pontos da regressão (seção~\ref{sec:limiar}). A separação é
+proposital: esta função inverte o modelo, aquela decide o que é utilizável.
 \end{nota}
 
 \subsection{Da temperatura à constante de Planck}
@@ -400,15 +429,29 @@ o que se lê não é mais sinal, é o piso do instrumento. Esses pontos não car
 informação sobre $h$, mas entram na regressão como se carregassem, e a
 distorcem.
 
-O filtro atual é um limiar fixo sobre a fotocorrente:
+A seleção é feita por uma função dedicada, \texttt{selecionar\_pontos\_validos},
+que aplica três critérios e devolve uma máscara booleana:
+
+\begin{enumerate}[nosep]
+  \item \textbf{Temperatura fisicamente possível} --- descarta NaN e qualquer
+        $T \le 0$;
+  \item \textbf{Região de Wien} --- descarta $T$ abaixo de um limite
+        configurável, por padrão 1800~K;
+  \item \textbf{Fotocorrente acima do limiar} --- mantém o logaritmo finito.
+\end{enumerate}
+
+A mesma função alimenta a interface, que pinta de cinza os pontos descartados:
+o operador vê, ponto a ponto, o que entrou e o que não entrou na conta.
 
 \begin{lstlisting}[language=Python]
-limiar_confianca = 1e-9   # 1 nA
-valid_indices = temperatura_valida & (photocurrent > limiar_confianca)
+temperatura_utilizavel = np.isfinite(T_kelvin) & (T_kelvin > 0)
+regiao_de_wien        = T_kelvin >= t_minima
+sinal_acima_do_piso   = np.isfinite(photocurrent) & (photocurrent > limiar_corrente)
+return temperatura_utilizavel & regiao_de_wien & sinal_acima_do_piso
 \end{lstlisting}
 
-O efeito desse critério pode ser medido. Numa varredura completa de 0 a 12~V
-com 49 pontos, gerada pela bancada simulada:
+O efeito do critério pode ser medido. Numa varredura completa de 0 a 12~V com
+49 pontos, gerada pela bancada simulada:
 
 \begin{center}
 \begin{tabular}{@{}lrrrr@{}}
@@ -416,21 +459,30 @@ com 49 pontos, gerada pela bancada simulada:
 \textbf{Critério de corte} & \textbf{Pontos} & \textbf{$h$ (J$\cdot$s)} & \textbf{Erro} & \textbf{$R^2$} \\
 \midrule
 Nenhum & 49 & $6{,}9 \times 10^{-36}$ & 99{,}0\% & 0{,}062 \\
-$I > 1$~nA (limiar atual) & 49 & $6{,}9 \times 10^{-36}$ & 99{,}0\% & 0{,}062 \\
+Só $I > 1$~nA & 49 & $6{,}9 \times 10^{-36}$ & 99{,}0\% & 0{,}062 \\
 $I > 25$~nA & 27 & $6{,}32 \times 10^{-34}$ & 4{,}6\% & 0{,}999 \\
-$T > 1800$~K & 29 & $6{,}31 \times 10^{-34}$ & 4{,}8\% & 0{,}999 \\
+$T > 1800$~K \textbf{(padrão)} & 29 & $6{,}31 \times 10^{-34}$ & 4{,}8\% & 0{,}999 \\
 $T > 2000$~K & 23 & $6{,}42 \times 10^{-34}$ & 3{,}1\% & 0{,}999 \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \begin{nota}
-\textbf{Leitura do quadro.} O limiar de 1~nA \emph{não descarta nenhum ponto}:
-o próprio piso do multímetro é da ordem de 4~nA, portanto maior que o limiar.
-Um corte coerente com o instrumento precisa vir do modelo de erro dele --- a
-especificação de exatidão na faixa de 100~$\mu$A tem um termo de fundo de
-25~nA --- e não de um número escolhido à mão. Essa correção é trabalho
-planejado, e a bancada simulada existe justamente para poder verificá-la.
+\textbf{Leitura do quadro.} Um limiar de 1~nA sobre a corrente \emph{não
+descarta nenhum ponto}: o próprio piso do multímetro é da ordem de 4~nA,
+portanto maior que o limiar. É por isso que o corte útil é o de
+\emph{temperatura}, e não o de corrente. Um limiar de corrente coerente com o
+instrumento precisaria vir do modelo de erro dele --- a especificação de
+exatidão na faixa de 100~$\mu$A tem um termo de fundo de 25~nA --- e não de um
+número escolhido à mão; essa derivação é trabalho ainda planejado.
+\end{nota}
+
+\begin{nota}
+\textbf{O ponto central de operação.} O corte acontece na \emph{regressão},
+não na \emph{coleta}. A varredura pode cobrir a faixa inteira, inclusive a
+partir de 0~V, e o CSV guarda todos os pontos; apenas a conta final usa a
+região informativa. Não é preciso escolher entre registrar o comportamento
+completo do filamento e obter um bom valor de $h$.
 \end{nota}
 
 \subsection{A simulação analítica}
@@ -631,11 +683,19 @@ Passo a passo, do clique ao resultado:
 \end{enumerate}
 
 \begin{nota}
-\textbf{Sobre a resistência calculada.} O software usa a tensão
-\emph{programada} para calcular $R = V/i$, não a tensão lida de volta da fonte.
-A leitura de retorno é mais exata que o valor programado, e a medição é a dois
-fios, então a resistência dos cabos entra no valor de $R$. Os drivers já
-expõem um método de leitura de tensão preparado para essa correção.
+\textbf{Sobre a resistência calculada.} A resistência do filamento vem da
+tensão \emph{lida de volta} da fonte (\texttt{MEAS:VOLT?}), não do valor
+programado: o readback do PWS4323 é mais exato que a exatidão de programação.
+Se o instrumento não responder ao readback, o cálculo cai para o valor
+programado em vez de abortar a coleta.
+
+Como a medição é a dois fios, a resistência dos cabos entra somada à do
+filamento; a interface oferece um campo para descontá-la:
+\[
+R_{\text{filamento}} = \frac{V_{\text{medida}}}{i} - R_{\text{cabos}}
+\]
+As duas tensões --- programada e medida --- são gravadas no CSV, o que permite
+auditar depois a diferença entre elas.
 \end{nota}
 
 % =============================================================
@@ -665,16 +725,20 @@ simulada.
 \midrule
 \texttt{Tensao\_Fonte\_V} & V & Valor programado na fonte \\
 \texttt{Corrente\_Filamento\_A} & A & \texttt{MEAS:CURR?} na fonte \\
-\texttt{Resistencia\_Ohms} & $\Omega$ & Calculada, $V/i$ \\
+\texttt{Resistencia\_Ohms} & $\Omega$ & Calculada, $V_{\text{medida}}/i - R_{\text{cabos}}$ \\
 \texttt{Temperatura\_K} & K & Calculada, equação~\eqref{eq:bhaskara} \\
 \texttt{Fotocorrente\_A} & A & \texttt{READ?} no multímetro \\
+\texttt{Tensao\_Medida\_V} & V & \texttt{MEAS:VOLT?} na fonte \\
 \bottomrule
 \end{tabular}
 \end{center}
 
 \begin{nota}
-Este formato é estável e há dados históricos gravados nele. Alterações de
-esquema devem preservar a leitura dos arquivos antigos.
+Há dados históricos gravados neste formato. A coluna de tensão medida foi
+acrescentada \emph{ao final}, justamente para que as cinco colunas originais
+permaneçam na mesma ordem: arquivos antigos continuam legíveis, e leitores que
+acessam por posição não quebram. Qualquer alteração futura de esquema deve
+seguir a mesma regra.
 \end{nota}
 
 \subsection{O relatório PDF}

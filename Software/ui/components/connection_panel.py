@@ -3,6 +3,8 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel,
 from core.hardware_manager import (HardwareManager, preferencias,
                                    CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
+from core.mock_hardware import bancada_simulada
+from utils.math_models import TEMPERATURA_AMBIENTE_PADRAO
 
 class ConnectionPanel(QWidget):
     def __init__(self, hw_manager: HardwareManager):
@@ -99,11 +101,15 @@ class ConnectionPanel(QWidget):
             self.pws_status.setText("🟡")
             self.dmm_status.setToolTip("Instrumento simulado")
             self.pws_status.setToolTip("Instrumento simulado")
+            bancada = bancada_simulada()
+            r_frio = bancada.resistencia_a_frio(TEMPERATURA_AMBIENTE_PADRAO)
             self.lbl_demo.setText(
                 "Os dados vêm de um filamento e um LED virtuais — não são medidas. "
-                "O filamento simulado usa R0 = 1,2 Ω, α = 5,23e-3, β = 7,0e-7 e "
-                "LED de 590 nm: use esses mesmos valores nos parâmetros para que "
-                "a temperatura seja recuperada corretamente."
+                f"Para que a temperatura seja recuperada corretamente, use nos "
+                f"parâmetros: resistência a frio = {r_frio:.4f} Ω medida a "
+                f"{TEMPERATURA_AMBIENTE_PADRAO:.0f} °C, "
+                f"α = {bancada.alpha:g}, β = {bancada.beta:g} e "
+                f"λ = {bancada.lambda_led * 1e9:.0f} nm."
             )
         else:
             self.pws_combo.clear()

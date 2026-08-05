@@ -127,6 +127,17 @@ class BancadaSimulada:
         tc = temperatura - 273.15
         return self.r0 * (1 + self.alpha * tc + self.beta * tc**2)
 
+    def resistencia_a_frio(self, t_ambiente_celsius: float) -> float:
+        """
+        O que um ohmímetro leria no filamento virtual em repouso.
+
+        `self.r0` é a resistência a 0 °C, que é a definição do modelo. O
+        operador, porém, mede na temperatura ambiente — é este o número que ele
+        deve digitar no campo "resistência a frio medida".
+        """
+        return self.r0 * (1 + self.alpha * t_ambiente_celsius
+                          + self.beta * t_ambiente_celsius**2)
+
     def _resolver_temperatura(self, tensao: float) -> float:
         """
         T de regime para uma tensão aplicada, por bissecção no balanço de energia.

@@ -5,14 +5,18 @@ import time
 from datetime import datetime
 import numpy as np
 
-from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout, 
-                               QLineEdit, QPushButton, QTabWidget, QLabel, QGroupBox, 
-                               QProgressBar, QMessageBox, QTextEdit, QFileDialog)
+from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFormLayout,
+                               QLineEdit, QPushButton, QTabWidget, QLabel, QGroupBox,
+                               QProgressBar, QMessageBox, QTextEdit, QFileDialog,
+                               QComboBox)
 from PySide6.QtCore import Qt, QThread, Signal
 from PySide6.QtGui import QFont
 import pyqtgraph as pg
 
-from utils.math_models import calculate_temperature, calculate_planck_constant
+from content.filamentos import PRESETS_FILAMENTO, PRESET_PADRAO
+from utils.math_models import (calculate_temperature, calculate_planck_constant,
+                               corrigir_r0_para_zero_celsius, selecionar_pontos_validos,
+                               TEMPERATURA_AMBIENTE_PADRAO, TEMPERATURA_MINIMA_PADRAO)
 from core.hardware_manager import (obter_drivers, preferencias,
                                    CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
@@ -59,11 +63,15 @@ class ExperimentWorker(QThread):
             pws.configure_safety_limits(max_current=2.0) # Limite de 1.5A para o filamento
             dmm.configure_dc_current(nplc=10.0) # Alta filtragem de ruído (60Hz)
             
-            # Inicializar o ficheiro CSV com cabeçalho
+            # Inicializar o ficheiro CSV com cabeçalho. As cinco primeiras
+            # colunas são as históricas, na mesma ordem: arquivos antigos
+            # continuam legíveis e leitores posicionais não quebram. A tensão
+            # medida entra ao final, como rastreabilidade da correção A4.
             with open(self.csv_filename, mode='w', newline='') as file:
                 writer = csv.writer(file)
-                writer.writerow(["Tensao_Fonte_V", "Corrente_Filamento_A", "Resistencia_Ohms", "Temperatura_K", "Fotocorrente_A"])
-            
+                writer.writerow(["Tensao_Fonte_V", "Corrente_Filamento_A", "Resistencia_Ohms",
+                                 "Temperatura_K", "Fotocorrente_A", "Tensao_Medida_V"])
+
             v_start = self.params['v_start']
             v_end = self.params['v_end']
             v_step = self.params['v_step']
@@ -90,22 +98,32 @@ class ExperimentWorker(QThread):
                 # Ler dados reais
                 i_fil = pws.measure_current()
                 i_led = dmm.read_current()
-                
+
+                # A4: usar a tensão medida nos terminais, não o setpoint. Se o
+                # instrumento não responder ao readback, cai para o valor
+                # programado em vez de abortar a coleta.
+                try:
+                    v_medido = pws.measure_voltage()
+                except Exception:
+                    v_medido = v_target
+
                 # Prevenir divisão por zero na resistência
                 if i_fil < 1e-6:
                     i_fil = 1e-6
-                    
-                r_fil = v_target / i_fil
-                
+
+                # A4: a medição é a 2 fios, então a resistência dos cabos entra
+                # no valor lido e precisa ser descontada.
+                r_fil = v_medido / i_fil - self.params['r_cabos']
+
                 # Calcular a Temperatura exata do instante usando Bhaskara
                 t_array = calculate_temperature(np.array([r_fil]), self.params['r0'], self.params['alpha'], self.params['beta'])
                 t_inst = t_array[0]
-                
+
                 # Guardar no Fail-Safe instantaneamente
                 with open(self.csv_filename, mode='a', newline='') as file:
                     writer = csv.writer(file)
-                    writer.writerow([v_target, i_fil, r_fil, t_inst, i_led])
-                
+                    writer.writerow([v_target, i_fil, r_fil, t_inst, i_led, v_medido])
+
                 # Armazenar para o cálculo final
                 data_T.append(t_inst)
                 data_I_led.append(i_led)
@@ -118,7 +136,10 @@ class ExperimentWorker(QThread):
             
             # Calcular a Constante de Planck com os dados recolhidos (mesmo se interrompido!)
             if len(data_T) > 2:
-                h_exp, erro, m, c, r2 = calculate_planck_constant(np.array(data_T), np.array(data_I_led), self.params['lam'])
+                h_exp, erro, m, c, r2 = calculate_planck_constant(
+                    np.array(data_T), np.array(data_I_led), self.params['lam'],
+                    t_minima=self.params['t_minima']
+                )
                 self.finished_exp.emit(h_exp, erro, m, c, r2)
             elif not self.is_running:
                 # Interrompido antes de ter 3 pontos (impossível fazer regressão)
@@ -168,28 +189,71 @@ class TabExperiment(QWidget):
         
         group_params = QGroupBox("Calibração Física do Filamento")
         form_params = QFormLayout()
-        self.input_r0 = QLineEdit("1.2")
-        self.input_alpha = QLineEdit("5.23e-3")
-        self.input_beta = QLineEdit("7.0e-7")
+
+        # A3: presets de coeficientes com fonte citada.
+        self.combo_preset = QComboBox()
+        for preset in PRESETS_FILAMENTO:
+            self.combo_preset.addItem(preset.rotulo, preset)
+        self.combo_preset.currentIndexChanged.connect(self.aplicar_preset_filamento)
+
+        self.input_r_frio = QLineEdit("1.2")
+        self.input_t_ambiente = QLineEdit(str(TEMPERATURA_AMBIENTE_PADRAO))
+        self.input_alpha = QLineEdit(str(PRESET_PADRAO.alpha))
+        self.input_beta = QLineEdit(str(PRESET_PADRAO.beta))
         self.input_lambda = QLineEdit("590")
-        form_params.addRow("Resistência a Frio R0 (Ω):", self.input_r0)
+        self.input_r_cabos = QLineEdit("0.0")
+
+        self.input_r_frio.setToolTip(
+            "Resistência do filamento medida frio, na temperatura ambiente.\n"
+            "O software converte para R0 (a 0 °C) automaticamente."
+        )
+        self.input_t_ambiente.setToolTip(
+            "Temperatura em que a resistência a frio foi medida.\n"
+            "Sem isso, R0 fica ~13% deslocado e enviesa todas as temperaturas."
+        )
+        self.input_r_cabos.setToolTip(
+            "Resistência dos cabos da medição a 2 fios, que entra somada à do\n"
+            "filamento. Deixe 0 se não souber; meça curto-circuitando as pontas."
+        )
+
+        # Mostra o R0 corrigido conforme o operador digita.
+        self.lbl_r0_corrigido = QLabel()
+        self.lbl_r0_corrigido.setStyleSheet("color: #64B5F6; font-size: 11px;")
+        for campo in (self.input_r_frio, self.input_t_ambiente,
+                      self.input_alpha, self.input_beta):
+            campo.textChanged.connect(self.atualizar_r0_corrigido)
+
+        form_params.addRow("Preset de coeficientes:", self.combo_preset)
+        form_params.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
+        form_params.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
+        form_params.addRow("", self.lbl_r0_corrigido)
         form_params.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
         form_params.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
         form_params.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
+        form_params.addRow("Resistência dos cabos (Ω):", self.input_r_cabos)
         group_params.setLayout(form_params)
-        
+
+        self.atualizar_r0_corrigido()
+
         group_sweep = QGroupBox("Varredura SCPI")
         form_sweep = QFormLayout()
         self.input_v_start = QLineEdit("1.0")
         self.input_v_end = QLineEdit("10.0")
         self.input_v_step = QLineEdit("0.5")
         self.input_delay = QLineEdit("3000") # 3 segundos para estabilização térmica real
+        self.input_t_minima = QLineEdit(str(TEMPERATURA_MINIMA_PADRAO))
+        self.input_t_minima.setToolTip(
+            "Só entram na regressão os pontos acima desta temperatura.\n"
+            "Abaixo dela a fotocorrente é menor que o ruído do multímetro.\n"
+            "Varra a faixa que quiser: o CSV guarda tudo, o corte é só na conta."
+        )
         form_sweep.addRow("Tensão Inicial (V):", self.input_v_start)
         form_sweep.addRow("Tensão Final (V):", self.input_v_end)
         form_sweep.addRow("Passo de Tensão (V):", self.input_v_step)
         form_sweep.addRow("Estabilização Térmica (ms):", self.input_delay)
+        form_sweep.addRow("Temp. mínima p/ regressão (K):", self.input_t_minima)
         group_sweep.setLayout(form_sweep)
-        
+
         layout_btns = QVBoxLayout()
         self.btn_start = QPushButton("▶ Iniciar Experimento Físico")
         self.btn_start.setMinimumHeight(50)
@@ -209,6 +273,31 @@ class TabExperiment(QWidget):
         layout.addWidget(group_params)
         layout.addWidget(group_sweep)
         layout.addLayout(layout_btns)
+
+    def aplicar_preset_filamento(self):
+        """Preenche α e β com o preset escolhido (A3)."""
+        preset = self.combo_preset.currentData()
+        if preset is None:
+            return
+        self.input_alpha.setText(str(preset.alpha))
+        self.input_beta.setText(str(preset.beta))
+        self.combo_preset.setToolTip(f"Fonte: {preset.fonte}\n\n{preset.observacao}")
+
+    def atualizar_r0_corrigido(self):
+        """Mostra ao vivo o R0 que sai da correção da Eq. 11 (A2)."""
+        try:
+            r0 = corrigir_r0_para_zero_celsius(
+                float(self.input_r_frio.text()),
+                float(self.input_t_ambiente.text()),
+                float(self.input_alpha.text()),
+                float(self.input_beta.text()),
+            )
+        except (ValueError, ZeroDivisionError):
+            self.lbl_r0_corrigido.setText("R0 a 0 °C: —  (verifique os valores)")
+            return
+        self.lbl_r0_corrigido.setText(
+            f"→ R0 a 0 °C = {r0:.4f} Ω   (é este o valor usado no cálculo)"
+        )
 
     def build_results_tab(self):
         layout = QVBoxLayout(self.tab_results)
@@ -266,9 +355,17 @@ class TabExperiment(QWidget):
         self.plot_linear = self.graph_layout.addPlot(title="Linearização Instantânea ln(I) vs 1/T", colspan=2)
         self.plot_linear.setLabel('left', "ln(I)")
         self.plot_linear.setLabel('bottom', "1/T (K⁻¹)")
-        self.scatter_linear = pg.ScatterPlotItem(size=6, pen=pg.mkPen('w'), brush=pg.mkBrush(255, 0, 0, 200)) # Vermelho
+        self.plot_linear.addLegend(offset=(-10, 10))
+        # Pontos descartados primeiro, para ficarem por baixo dos usados.
+        self.scatter_descartado = pg.ScatterPlotItem(
+            size=6, pen=pg.mkPen(None), brush=pg.mkBrush(120, 120, 120, 150),
+            name="Descartado (fora da região de Wien)")
+        self.scatter_linear = pg.ScatterPlotItem(
+            size=6, pen=pg.mkPen('w'), brush=pg.mkBrush(255, 0, 0, 200),
+            name="Usado na regressão")
+        self.plot_linear.addItem(self.scatter_descartado)
         self.plot_linear.addItem(self.scatter_linear)
-        
+
         main_view_layout.addWidget(self.graph_layout, stretch=3)
         
         # 2. Histórico Contínuo (Consola Log)
@@ -295,22 +392,29 @@ class TabExperiment(QWidget):
         self.scatter_t.setData(self.data_v, self.data_t)
         self.scatter_raw.setData(self.data_v, self.data_i_led)
         
-        # Atualiza gráfico logarítmico (Filtrando ruído negativo ou zero e,
-        # por B9, temperaturas nulas ou não-finitas que estourariam o 1/T)
+        # Atualiza gráfico logarítmico. Os pontos que a regressão vai usar
+        # aparecem em vermelho; os descartados, em cinza — o operador vê na
+        # hora o que está entrando na conta (A5).
         arr_t = np.array(self.data_t, dtype=float)
         arr_i = np.array(self.data_i_led, dtype=float)
-        valid = (arr_i > 1e-12) & np.isfinite(arr_t) & (arr_t != 0)
-        if np.any(valid):
-            x_linear = 1 / arr_t[valid]
-            y_linear = np.log(arr_i[valid])
-            self.scatter_linear.setData(x_linear, y_linear)
+        plotavel = (arr_i > 1e-12) & np.isfinite(arr_t) & (arr_t != 0)
+        usados = selecionar_pontos_validos(arr_t, arr_i, self.params['t_minima'])
+        descartados = plotavel & ~usados
+
+        for cena, mascara in ((self.scatter_linear, usados),
+                              (self.scatter_descartado, descartados)):
+            if np.any(mascara):
+                cena.setData(1 / arr_t[mascara], np.log(arr_i[mascara]))
+            else:
+                cena.setData([], [])
 
         # Atualiza o Histórico (Console do lado direito)
         # Assumimos i_fil = V / R_fil. Vamos recalcular I_fil aproximado só para display:
         r_fil = self.params['r0'] * (1 + self.params['alpha']*(t-273.15) + self.params['beta']*(t-273.15)**2)
         i_fil = v / r_fil if r_fil > 0 else 0
-        
-        log_line = f"{v:05.2f}V | {i_fil:04.2f}A | {t:06.1f}K | {i_led:.2e}A"
+
+        marca = "" if usados[-1] else "  (fora da regressão)"
+        log_line = f"{v:05.2f}V | {i_fil:04.2f}A | {t:06.1f}K | {i_led:.2e}A{marca}"
         self.history_log.append(log_line)
         self.history_log.verticalScrollBar().setValue(self.history_log.verticalScrollBar().maximum())
         
@@ -339,14 +443,33 @@ class TabExperiment(QWidget):
         
         self.data_v.clear(); self.data_t.clear(); self.data_i_led.clear()
         self.scatter_raw.setData([], [])
+        self.scatter_t.setData([], [])
+        self.scatter_linear.setData([], [])
+        self.scatter_descartado.setData([], [])
         
+        alpha = float(self.input_alpha.text())
+        beta = float(self.input_beta.text())
+        t_ambiente = float(self.input_t_ambiente.text())
+        r_frio = float(self.input_r_frio.text())
+
+        try:
+            # A2: a medida a frio é feita na temperatura ambiente; R0 é a 0 °C.
+            r0 = corrigir_r0_para_zero_celsius(r_frio, t_ambiente, alpha, beta)
+        except ValueError as erro:
+            QMessageBox.warning(self, "Parâmetro inválido", str(erro))
+            self.btn_start.setEnabled(True)
+            self.btn_stop.setEnabled(False)
+            return
+
         params = {
-            'r0': float(self.input_r0.text()), 'alpha': float(self.input_alpha.text()),
-            'beta': float(self.input_beta.text()), 'lam': float(self.input_lambda.text()),
+            'r0': r0, 'r_frio': r_frio, 't_ambiente': t_ambiente,
+            'alpha': alpha, 'beta': beta, 'lam': float(self.input_lambda.text()),
+            'r_cabos': float(self.input_r_cabos.text()),
+            't_minima': float(self.input_t_minima.text()),
             'v_start': float(self.input_v_start.text()), 'v_end': float(self.input_v_end.text()),
             'v_step': float(self.input_v_step.text()), 'delay': float(self.input_delay.text())
         }
-        
+
         self.params = params
 
         # O máximo da barra tem de vir do MESMO vetor que o worker vai percorrer.
@@ -383,9 +506,17 @@ class TabExperiment(QWidget):
             'r2': r2
         }
         
+        n_usados = int(np.sum(selecionar_pontos_validos(
+            np.array(self.data_t, dtype=float),
+            np.array(self.data_i_led, dtype=float),
+            self.params['t_minima'])))
+
         self.lbl_h_result.setText(f"h = {h_exp:.4e} J.s")
         self.lbl_h_result.setStyleSheet("background-color: #1e1e1e; color: #00ff00; border-radius: 5px; padding: 10px;")
-        self.lbl_status.setText(f"Erro: {erro:.2f}% | Ficheiro Salvo.")
+        self.lbl_status.setText(
+            f"Erro: {erro:.2f}% | R²: {r2:.4f} | "
+            f"{n_usados} de {len(self.data_t)} pontos na regressão"
+        )
         QMessageBox.information(self, "Concluído", f"Experimento concluído em segurança.\nDados guardados em: {self.worker.csv_filename}")
         
         
@@ -425,13 +556,21 @@ class TabExperiment(QWidget):
                     pixmap.save(img_path)
                     
                     # Formata os parâmetros reais usados para o relatório
+                    n_usados = int(np.sum(selecionar_pontos_validos(
+                        np.array(self.data_t, dtype=float),
+                        np.array(self.data_i_led, dtype=float),
+                        self.params['t_minima'])))
                     params_formatados = {
-                        'R0 (Frio)': f"{self.params['r0']} Ω",
+                        'Resistência a frio medida': f"{self.params['r_frio']} Ω a {self.params['t_ambiente']} °C",
+                        'R0 corrigido (0 °C)': f"{self.params['r0']:.4f} Ω",
                         'Alpha': f"{self.params['alpha']} K⁻¹",
                         'Beta': f"{self.params['beta']} K⁻²",
                         'Comprimento de Onda': f"{self.params['lam']} nm",
+                        'Resistência dos cabos': f"{self.params['r_cabos']} Ω",
                         'Varredura': f"De {self.params['v_start']}V a {self.params['v_end']}V (Passo: {self.params['v_step']}V)",
-                        'Estabilização Térmica': f"{self.params['delay']} ms"
+                        'Estabilização Térmica': f"{self.params['delay']} ms",
+                        'Temp. mínima na regressão': f"{self.params['t_minima']} K",
+                        'Pontos usados na regressão': f"{n_usados} de {len(self.data_t)}"
                     }
                     
                     # Gera o PDF usando as variáveis globais

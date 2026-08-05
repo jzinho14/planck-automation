@@ -55,7 +55,17 @@ class PWS4323_Driver:
     def measure_current(self) -> float:
         # Pede a leitura da corrente e converte
         return float(self.inst.query("MEAS:CURR?"))
-        
+
+    def measure_voltage(self) -> float:
+        """
+        Tensão realmente presente nos terminais (A4).
+
+        Não é o mesmo que a tensão programada: o readback do PWS4323 é mais
+        exato que a exatidão de programação, então R = V/i calculado com este
+        valor carrega menos erro do que com o setpoint.
+        """
+        return float(self.inst.query("MEAS:VOLT?"))
+
     def turn_off_safely(self):
         try:
             self.inst.write("SOUR:VOLT 0.0")

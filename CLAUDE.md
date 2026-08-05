@@ -71,15 +71,18 @@ Software/
 │       ├── tab_experiment.py    # ExperimentWorker(QThread) + UI da bancada real
 │       └── tab_references.py    # renderiza content/referencias.py (artigo + manuais)
 ├── utils/
-│   ├── math_models.py           # calculate_temperature, simulate_experiment_data,
-│   │                            #   calculate_planck_constant (contém código morto — ver B3)
+│   ├── math_models.py           # corrigir_r0_para_zero_celsius, calculate_temperature,
+│   │                            #   selecionar_pontos_validos, simulate_experiment_data,
+│   │                            #   calculate_planck_constant
 │   └── pdf_exporter.py          # Relatório PDF via reportlab
-└── data_backup/                 # CSVs de coletas reais (formato: Tensao_Fonte_V,
-                                 #   Corrente_Filamento_A, Resistencia_Ohms, Temperatura_K, Fotocorrente_A)
+└── data_backup/                 # exp_planck_*.csv (bancada real) e demo_planck_*.csv
+                                 #   (simulados). Colunas: Tensao_Fonte_V,
+                                 #   Corrente_Filamento_A, Resistencia_Ohms, Temperatura_K,
+                                 #   Fotocorrente_A, Tensao_Medida_V (nova, ao final)
 Tests/test_connection.py         # Scan VISA standalone (espelha o ScannerThread)
 Tests/test_mock_hardware.py      # 17 checagens da bancada simulada (roda sem hardware)
 Tests/test_math_models.py        # 22 checagens do modelo fisico (A2, A5, regressao)
-Markdowns/project_description.md # Especificação original (4 abas; só 3 existem)
+Markdowns/project_description.md # Especificação original (as abas Análise e Comparação ainda faltam)
 Docs/                            # Artigo de referência + datasheets Tektronix
 ```
 

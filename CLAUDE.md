@@ -73,12 +73,13 @@ Software/
 │   │                            #   ValidatorThread, HardwareManager(QObject),
 │   │                            #   obter_drivers()/modo_demonstracao_ativo()
 │   ├── mock_hardware.py         # BancadaSimulada + Mock*_Driver (mesma interface)
-│   └── metadados.py             # JSON irmão de cada CSV (P5 — rastreabilidade)
+│   ├── metadados.py             # JSON irmão de cada CSV (P5 — rastreabilidade)
+│   └── carregador.py            # lê coletas gravadas (3 gerações de formato)
 ├── ui/
 │   ├── janela_fluent.py         # ← JANELA PADRÃO: FluentWindow, 5 páginas,
 │   │                            #   cabeçalho de estado fixo + barra de status
 │   ├── paginas/                 # pagina_conexao, pagina_execucao (base),
-│   │                            #   paginas_coleta (Simulação/Bancada)
+│   │                            #   paginas_coleta, pagina_analise
 │   ├── main_window.py           # janela CLÁSSICA (PLANCK_UI=classica)
 │   ├── theme.py                 # DARK_THEME (string QSS)
 │   ├── components/
@@ -95,6 +96,7 @@ Software/
 │   │                            #   calculate_planck_constant
 │   ├── error_models.py          # GUM: Tipo A/B, propagação, ajuste ponderado,
 │   │                            #   analisar_experimento() → h ± U + orçamento
+│   ├── stefan_boltzmann.py      # A10: log(V·i) × log(T) → expoente ~4
 │   └── pdf_exporter.py          # Relatório PDF via reportlab
 └── data_backup/                 # exp_planck_*.csv (bancada real) e demo_planck_*.csv
                                  #   (simulados). Colunas: Tensao_Fonte_V,
@@ -107,6 +109,7 @@ Tests/test_error_models.py       # 40 checagens da teoria de erros (Tipo A/B, aj
 Tests/test_perfis_metadados.py   # 40 checagens de perfis e metadados por coleta
 Tests/test_interface.py          # ponta a ponta pela UI classica, sem hardware
 Tests/test_interface_fluent.py   # ponta a ponta pela UI Fluent, sem hardware
+Tests/test_analise.py            # 30 checagens do carregador e de Stefan-Boltzmann
 Tests/calibrar_mock_com_dados_reais.py  # procedencia das constantes do mock (nao e teste)
 Markdowns/project_description.md # Especificação original (as abas Análise e Comparação ainda faltam)
 Docs/                            # Artigo de referência + datasheets Tektronix
@@ -435,8 +438,24 @@ profiles/
    - **A janela clássica continua funcional:** `set PLANCK_UI=classica`. Só sai
      depois que a nova rodar um experimento real com os instrumentos ligados.
    - **⚠ Licença:** QFluentWidgets comunitário é GPLv3 — ver PENDENCIAS.txt, P6.
-7. **Fase 6 — Página Análise:** multi-CSV, comparação real×simulação, pipeline
-   passo a passo, Stefan-Boltzmann (A10), relatório PDF ampliado.
+7. ~~**Fase 6 — Página Análise**~~ ✅ **CONCLUÍDA.**
+   - `core/carregador.py` lê as **três gerações** de CSV (histórica de 5 colunas,
+     Fase 2 com 6, Fase 3+ com 8 e JSON). Leitura por NOME de coluna, não por
+     posição. Arquivo ruim no meio da lista não impede os outros.
+   - `ui/paginas/pagina_analise.py`: carrega várias coletas, sobrepõe curvas em
+     três projeções (bruto, ln I × 1/T, log P × log T) e reprocessa com a cadeia
+     de incertezas atual, mostrando o **pipeline passo a passo**.
+   - Se a coleta tem metadados, a reanálise usa os parâmetros DELA; se não tem
+     (as 52 históricas), usa os da página Parâmetros e avisa disso.
+   - **A10 concluído** — `utils/stefan_boltzmann.py`. Resultado sobre os dados
+     reais: **39 de 41 coletas** verificam a lei dentro de 10% do expoente 4,
+     mediana **4,09**, R² mediano 0,999.
+   - O expoente sai sistematicamente **acima** de 4 — é físico: a emissividade
+     do tungstênio cresce com T, então ε(T)·T⁴ sobe mais rápido que T⁴. A
+     docstring inicial dizia o contrário e foi corrigida pelos dados.
+   - Critério de aceitação por **desvio relativo**, não por sigmas: u_P/P ≈ 0,1%
+     dá barra de ±0,02 no expoente, e o desvio real é sistemático — um teste de
+     sigmas reprovaria tudo.
 8. **Fase 7 — Simulação física melhor (A9)** e empacotamento: PyInstaller
    (`--windowed`, atenção aos hooks do QFluentWidgets/pyqtgraph) + script Inno Setup
    (fluxo que o usuário já domina), conforme `Markdowns/project_description.md` §5.6.

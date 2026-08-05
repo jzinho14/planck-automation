@@ -41,10 +41,10 @@ janela.show()
 print("1. Navegação sem abas dentro de abas")
 
 esperadas = ["pagina_conexao", "pagina_parametros", "pagina_simulacao",
-             "pagina_bancada", "pagina_referencias"]
+             "pagina_bancada", "pagina_analise", "pagina_referencias"]
 nomes = [janela.stackedWidget.widget(i).objectName()
          for i in range(janela.stackedWidget.count())]
-checa(nomes == esperadas, "as cinco páginas na ordem esperada", str(nomes))
+checa(nomes == esperadas, "as seis páginas na ordem esperada", str(nomes))
 
 from PySide6.QtWidgets import QTabWidget
 sub_abas = [p for p in (janela.pagina_simulacao, janela.pagina_bancada)

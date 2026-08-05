@@ -255,31 +255,81 @@ IMPACTO SE MUDAR
   Nenhum no funcionamento. E questao juridica de distribuicao, nao tecnica.
 
 ================================================================================
-P3 - [B4] Limite de corrente da fonte esta fixo no codigo
+P3 - [B4] Limite de corrente da fonte
 ================================================================================
-STATUS: ABERTO - decisao de bancada
-Origem: CLAUDE.md secao 5, bug B4.
+STATUS: RESOLVIDO em 05/08/2026 (decisao do usuario)
 
-SITUACAO ATUAL
-  ExperimentWorker chama configure_safety_limits(max_current=2.0), com um
-  comentario ao lado dizendo 1.5 A. O comentario e o codigo discordam, e o
-  valor nao e editavel pela interface.
+DECISAO
+  A lampada opera ate 24 W. Varrendo ate 12 V, isso da 24/12 = 2,0 A.
+  O limite padrao foi ajustado para 2,0 A.
 
-O QUE VERIFICAR
-  Qual e o limite CORRETO para o filamento que esta na bancada? 1.5 A ou
-  2.0 A? Esse numero e uma protecao fisica: errar para mais pode queimar o
-  filamento.
+  Nao e um palpite: e o teto fisico do componente. E o campo continua
+  editavel na pagina de Conexao, de 0,1 a 3,0 A, com o valor efetivo gravado
+  nos metadados de cada coleta.
 
-  Depois de definido, o valor vira campo editavel na aba de Ligacoes, com o
-  default seguro que voce indicar.
+CONFERENCIA
+  Simulando o filamento historico (R0 = 0,42 ohm) a 12 V: 1,74 A e 20,8 W.
+  Fica dentro dos dois limites, com folga de ~13% em corrente e ~13% em
+  potencia. O limite de 2,0 A protege sem estrangular a varredura.
 
-IMPACTO SE MUDAR
-  Direto na seguranca da montagem. Por isso nao alterei o valor por conta
-  propria -- so registrei a inconsistencia.
+================================================================================
+P7 - Varredura por TEMPERATURA em vez de por tensao
+================================================================================
+STATUS: PROPOSTA - aguardando decisao
+Origem: ideia do usuario em 05/08/2026 ("variar a potencia em si, e nao so a
+tensao"). Medida antes de opinar.
 
-COMO ALTERAR
-  Software/ui/tabs/tab_experiment.py, dentro de ExperimentWorker.run().
-  Previsto para a Fase 5 (nova interface), junto com o campo de IP do DMM.
+A INTUICAO ESTA CERTA, A GRANDEZA NAO
+  A observacao de fundo procede: o que determina a temperatura e a POTENCIA
+  dissipada, nao a tensao. Mas ha duas correcoes a fazer.
+
+  1. Nao da para escolher V e i de forma independente.
+     A lampada e uma carga resistiva: dada uma tensao, a corrente e i = V/R(T).
+     Nao existe "combinacao" livre de tensao e corrente - o filamento decide.
+     A unica liberdade extra seria operar em modo corrente constante (CC),
+     baixando o limite ate ele atuar. Para tungstenio isso e MENOS estavel que
+     o modo tensao constante, porque a resistencia cresce com a temperatura e
+     em CV isso se auto-regula. Nao vale a pena.
+
+  2. Varrer potencia uniformemente e PIOR que varrer temperatura.
+     Medido no mock calibrado com os dados reais, 25 pontos de 0 a 12 V:
+
+       estrategia                 uteis  desperdicados  dispersao em 1/T
+       tensao uniforme (hoje)        15             10             36%
+       potencia uniforme             18              7             46%
+       temperatura uniforme          24              1             19%
+
+     "uteis" = pontos com T >= 1800 K, que entram na regressao.
+     "dispersao" = quao irregular e o espacamento em 1/T (menor = melhor;
+     a regressao estima a inclinacao melhor com pontos bem distribuidos).
+
+     Potencia uniforme ganha alguns pontos uteis mas piora a distribuicao.
+     Temperatura uniforme ganha nos dois criterios: 60% mais pontos uteis que
+     hoje, e quase o dobro de regularidade.
+
+COMO IMPLEMENTAR SEM CUSTO DE TEMPO
+  A tentacao seria um laco fechado: aplicar tensao, medir T, corrigir, repetir.
+  Isso funcionaria, mas cada correcao exige nova espera termica - uma busca de
+  5 passos multiplicaria por 5 o tempo de cada ponto. Para 25 pontos, a coleta
+  passaria de ~1 min para ~6 min.
+
+  Alternativa sem laco: a relacao T(V) e uma lei de potencia bem comportada,
+  T proporcional a V^n com n ~= 0,46 ajustado sobre os proprios CSVs reais.
+  Invertendo, V proporcional a T^(1/n). Da para GERAR a lista de tensoes que
+  produz temperaturas aproximadamente uniformes, sem medir nada antes e sem
+  tempo extra. As temperaturas nao saem exatamente uniformes - saem perto o
+  bastante, que e o objetivo.
+
+  Viraria um campo no perfil de varredura: "distribuir por" = tensao (atual)
+  ou temperatura estimada.
+
+O QUE DECIDIR
+  Vale implementar? Custo estimado: pequeno (um gerador de lista de tensoes e
+  um campo no perfil). Ganho medido: 60% mais pontos uteis pelo mesmo tempo de
+  coleta. Risco: nenhum na bancada - continua sendo uma varredura de tensao
+  comum, so com os passos escolhidos de outro jeito.
+
+  Nao foi implementado junto com a Fase 6 para nao ampliar escopo sem aval.
 
 ================================================================================
 P4 - [B5] IP do multimetro fixo no codigo

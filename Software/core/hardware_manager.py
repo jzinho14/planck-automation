@@ -18,11 +18,14 @@ CHAVE_PORTA_DMM = "Connection/DMMPorta"
 IP_DMM_PADRAO = "192.168.1.107"
 PORTA_DMM_PADRAO = "3490"
 
-# B4 — o limite de corrente deixa de ser hardcoded. O padrão é o valor
-# conservador que o comentário do código antigo mencionava; o valor efetivo
-# para o filamento em uso é decisão de bancada (ver PENDENCIAS.txt, P3).
+# B4 — o limite de corrente deixa de ser hardcoded.
+#
+# O padrão vem da lâmpada em uso, informado pelo operador em 05/08/2026: ela
+# opera até 24 W. Varrendo até 12 V, isso dá 24/12 = 2,0 A. É o teto físico do
+# componente, não um palpite. (PENDENCIAS.txt, P3 — resolvido.)
 CHAVE_LIMITE_CORRENTE = "Safety/LimiteCorrenteA"
-LIMITE_CORRENTE_PADRAO = 1.5
+LIMITE_CORRENTE_PADRAO = 2.0
+POTENCIA_MAXIMA_LAMPADA_W = 24.0
 
 
 def preferencias() -> QSettings:

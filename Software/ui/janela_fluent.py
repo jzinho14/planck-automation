@@ -30,6 +30,7 @@ from core.hardware_manager import HardwareManager
 from ui.components.painel_parametros import PainelParametros
 from ui.paginas.pagina_conexao import PaginaConexao
 from ui.paginas.paginas_coleta import PaginaSimulacao, PaginaBancada
+from ui.paginas.pagina_analise import PaginaAnalise
 from ui.tabs.tab_references import TabReferences
 
 
@@ -126,12 +127,14 @@ class JanelaPlanck(FluentWindow):
         self.pagina_parametros = PaginaParametros()
         self.pagina_simulacao = PaginaSimulacao(self)
         self.pagina_bancada = PaginaBancada(self)
+        self.pagina_analise = PaginaAnalise(self)
         self.pagina_referencias = PaginaReferencias()
 
         self.addSubInterface(self.pagina_conexao, FluentIcon.CONNECT, "Conexão")
         self.addSubInterface(self.pagina_parametros, FluentIcon.SETTING, "Parâmetros")
         self.addSubInterface(self.pagina_simulacao, FluentIcon.DEVELOPER_TOOLS, "Simulação")
         self.addSubInterface(self.pagina_bancada, FluentIcon.IOT, "Bancada")
+        self.addSubInterface(self.pagina_analise, FluentIcon.PIE_SINGLE, "Análise")
         self.addSubInterface(self.pagina_referencias, FluentIcon.LIBRARY, "Referências",
                              position=NavigationItemPosition.BOTTOM)
 

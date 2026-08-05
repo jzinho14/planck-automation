@@ -66,21 +66,15 @@ class DMM4050_Driver:
         time.sleep(0.1)
         
     def read_current(self) -> float:
+        # 3. Dispara a leitura e busca o resultado
         return float(self.inst.query("READ?"))
-        
+
     def close(self):
-        # 3. Devolve o controle para o painel frontal antes de fechar a comunicação
+        # 4. Devolve o controle para o painel frontal antes de fechar a comunicação
         try:
             self.inst.write("SYST:LOC")
         except:
             pass
-        self.inst.close()
-        
-    def read_current(self) -> float:
-        # 3. Dispara a leitura e busca o resultado
-        return float(self.inst.query("READ?"))
-        
-    def close(self):
         self.inst.close()
 
 class ScannerThread(QThread):

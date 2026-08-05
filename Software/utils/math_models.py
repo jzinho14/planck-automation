@@ -54,26 +54,33 @@ def calculate_planck_constant(T_kelvin: np.ndarray, photocurrent: np.ndarray, la
     Retorna: (h_experimental, erro_relativo, coef_angular, coef_linear, r_squared)
     """
     lambda_led = lambda_led_nm * 1e-9
-    x = 1 / T_kelvin
-    
+    T_kelvin = np.asarray(T_kelvin, dtype=float)
+    photocurrent = np.asarray(photocurrent, dtype=float)
+
     # CORREÇÃO: Filtro de Regressão. Só usamos pontos onde a corrente é pelo menos 10x maior que o piso de ruído
     limiar_confianca = 1e-9 # 1 nA
-    valid_indices = photocurrent > limiar_confianca
-    
-    x_valid = x[valid_indices]
+    # Guard (B9): T = 0 (ou NaN vindo de um discriminante negativo na Bhaskara)
+    # faria 1/T estourar em divisão por zero. Esses pontos saem da regressão.
+    temperatura_valida = np.isfinite(T_kelvin) & (T_kelvin != 0)
+    valid_indices = temperatura_valida & (photocurrent > limiar_confianca)
+
+    x_valid = 1 / T_kelvin[valid_indices]
     y_valid = np.log(photocurrent[valid_indices])
-    
+
     if len(x_valid) < 2:
         return 0, 0, 0, 0, 0
-    
+
     A = np.vstack([x_valid, np.ones(len(x_valid))]).T
     m, c = np.linalg.lstsq(A, y_valid, rcond=None)[0]
-    
+
     y_pred = m * x_valid + c
     ss_res = np.sum((y_valid - y_pred)**2)
     ss_tot = np.sum((y_valid - np.mean(y_valid))**2)
-    r_squared = 1 - (ss_res / ss_tot)
-    
+    # Guard (B9): ss_tot = 0 quando todos os ln(I) são iguais (reta horizontal,
+    # ou um único valor repetido). O R² é indefinido nesse caso; reportamos 0.0
+    # em vez de deixar o NaN/inf da divisão por zero chegar à UI e ao PDF.
+    r_squared = 1 - (ss_res / ss_tot) if ss_tot > 0 else 0.0
+
     h_experimental = - (m * lambda_led * K_B) / C
     erro_relativo = abs(h_experimental - H_REF) / H_REF * 100
     

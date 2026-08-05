@@ -238,16 +238,16 @@ class TabSimulation(QWidget):
         # Atualizar gráfico 1 (Dados Brutos)
         self.scatter_raw.setData(self.data_v, self.data_i_led)
         
-        # Atualizar gráfico 2 (Linearizado) dinamicamente (Apenas log válido)
-        valid = np.array(self.data_i_led) > 1e-12
+        # Atualizar gráfico 2 (Linearizado) dinamicamente (Apenas log válido e,
+        # por B9, sem temperaturas nulas/não-finitas que estourariam o 1/T)
+        arr_t = np.array(self.data_t, dtype=float)
+        arr_i = np.array(self.data_i_led, dtype=float)
+        valid = (arr_i > 1e-12) & np.isfinite(arr_t) & (arr_t != 0)
         if np.any(valid):
-            v_t = np.array(self.data_t)[valid]
-            v_i = np.array(self.data_i_led)[valid]
-            
-            x_linear = 1 / v_t
-            y_linear = np.log(v_i)
+            x_linear = 1 / arr_t[valid]
+            y_linear = np.log(arr_i[valid])
             self.scatter_linear.setData(x_linear, y_linear)
-            
+
         self.progress_bar.setValue(len(self.data_v))
 
     def simulation_finished(self, h_exp, erro, m, c, r2):
@@ -273,12 +273,17 @@ class TabSimulation(QWidget):
             'Fator de Ruído Simulado': self.input_noise.text()
         }
         
-        valid = np.array(self.data_i_led) > 1e-12
-        x_linear = 1 / np.array(self.data_t)[valid]
-        x_fit = np.array([np.min(x_linear), np.max(x_linear)])
-        y_fit = m * x_fit + c
-        self.line_fit.setData(x_fit, y_fit)
-        
+        # Mesmo filtro do gráfico ao vivo (B9): sem T nulo/não-finito no 1/T,
+        # e sem tentar min/max de um vetor vazio se nada passou no filtro.
+        arr_t = np.array(self.data_t, dtype=float)
+        arr_i = np.array(self.data_i_led, dtype=float)
+        valid = (arr_i > 1e-12) & np.isfinite(arr_t) & (arr_t != 0)
+        if np.any(valid):
+            x_linear = 1 / arr_t[valid]
+            x_fit = np.array([np.min(x_linear), np.max(x_linear)])
+            y_fit = m * x_fit + c
+            self.line_fit.setData(x_fit, y_fit)
+
         self.lbl_h_result.setText(f"h = {h_exp:.4e} J.s")
         self.lbl_error.setText(f"Erro Relativo: {erro:.2f}% | R²: {r2:.4f}")
 

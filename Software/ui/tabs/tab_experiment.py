@@ -286,15 +286,16 @@ class TabExperiment(QWidget):
         self.scatter_t.setData(self.data_v, self.data_t)
         self.scatter_raw.setData(self.data_v, self.data_i_led)
         
-        # Atualiza gráfico logarítmico (Filtrando ruído negativo ou zero)
-        valid = np.array(self.data_i_led) > 1e-12
+        # Atualiza gráfico logarítmico (Filtrando ruído negativo ou zero e,
+        # por B9, temperaturas nulas ou não-finitas que estourariam o 1/T)
+        arr_t = np.array(self.data_t, dtype=float)
+        arr_i = np.array(self.data_i_led, dtype=float)
+        valid = (arr_i > 1e-12) & np.isfinite(arr_t) & (arr_t != 0)
         if np.any(valid):
-            v_t = np.array(self.data_t)[valid]
-            v_i = np.array(self.data_i_led)[valid]
-            x_linear = 1 / v_t
-            y_linear = np.log(v_i)
+            x_linear = 1 / arr_t[valid]
+            y_linear = np.log(arr_i[valid])
             self.scatter_linear.setData(x_linear, y_linear)
-            
+
         # Atualiza o Histórico (Console do lado direito)
         # Assumimos i_fil = V / R_fil. Vamos recalcular I_fil aproximado só para display:
         r_fil = self.params['r0'] * (1 + self.params['alpha']*(t-273.15) + self.params['beta']*(t-273.15)**2)

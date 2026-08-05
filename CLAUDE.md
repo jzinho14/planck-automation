@@ -52,21 +52,21 @@ ao final → h, erro relativo e R².
 ```
 Software/
 ├── main.py                      # QApplication + Fusion + tema QSS escuro
+├── content/
+│   └── referencias.py           # dataclass Referencia + lista REFERENCIAS (dado, não código)
 ├── core/
-│   ├── hardware_manager.py      # Drivers SCPI (PWS4323, DMM4050), ScannerThread,
-│   │                            #   ValidatorThread, HardwareManager(QObject)
-│   ├── data_logger.py           # VAZIO (planejado, nunca implementado)
-│   └── experiment_runner.py     # VAZIO (planejado, nunca implementado)
+│   └── hardware_manager.py      # Drivers SCPI (PWS4323, DMM4050), ScannerThread,
+│                                #   ValidatorThread, HardwareManager(QObject)
 ├── ui/
-│   ├── main_window.py           # QTabWidget com 3 abas
+│   ├── main_window.py           # QTabWidget com 4 abas
 │   ├── theme.py                 # DARK_THEME (string QSS)
 │   ├── components/
 │   │   ├── connection_panel.py  # Scan/validação VISA, persiste em QSettings("Senac","PlanckAutomation")
-│   │   ├── export_dialog.py     # Metadados do relatório PDF
-│   │   └── plot_widget.py       # VAZIO
+│   │   └── export_dialog.py     # Metadados do relatório PDF
 │   └── tabs/
 │       ├── tab_simulation.py    # SimulationWorker(QThread) + UI de simulação
-│       └── tab_experiment.py    # ExperimentWorker(QThread) + UI da bancada real
+│       ├── tab_experiment.py    # ExperimentWorker(QThread) + UI da bancada real
+│       └── tab_references.py    # renderiza content/referencias.py (artigo + manuais)
 ├── utils/
 │   ├── math_models.py           # calculate_temperature, simulate_experiment_data,
 │   │                            #   calculate_planck_constant (contém código morto — ver B3)
@@ -342,6 +342,12 @@ Cada fase deve terminar com o software abrindo e rodando uma simulação complet
 (no modo mock a partir da Fase 1).
 
 ## 10. Referências dentro do repositório
+
+> Estes documentos também aparecem na **aba Referências** do software, com o
+> caminho oficial de acesso de cada um. A fonte de verdade é
+> `Software/content/referencias.py` — para acrescentar um documento, edite essa
+> lista; a UI se adapta sozinha.
+
 
 - Teoria: `Docs/Corpo negro e determinação experimental da constante de Planck.pdf`
   (Eqs. 1–13; Tabela 1 mostra as incertezas típicas alcançáveis: h ≈ (5,8±0,3)×10⁻³⁴).

@@ -6,6 +6,7 @@ from core.hardware_manager import HardwareManager
 from ui.components.connection_panel import ConnectionPanel
 from ui.tabs.tab_simulation import TabSimulation
 from ui.tabs.tab_experiment import TabExperiment
+from ui.tabs.tab_references import TabReferences
 
 class MainWindow(QMainWindow):
     def __init__(self):
@@ -36,10 +37,14 @@ class MainWindow(QMainWindow):
         # --- Aba 3: Experimento Real (O nosso próximo alvo) ---
         self.tab_experiment = TabExperiment(self.hw_manager)
 
+        # --- Aba 4: Referências (artigo de base e manuais dos instrumentos) ---
+        self.tab_references = TabReferences()
+
         # Adicionar as abas ao ecrã principal
         self.main_tabs.addTab(self.tab_setup, "🔌 Hardware e Ligações")
         self.main_tabs.addTab(self.tab_simulation, "💻 Simulação")
         self.main_tabs.addTab(self.tab_experiment, "🔬 Experimento Real")
+        self.main_tabs.addTab(self.tab_references, "📚 Referências")
 
         self.setCentralWidget(self.main_tabs)
 

@@ -333,8 +333,13 @@ class TabExperiment(QWidget):
         }
         
         self.params = params
-        
-        self.progress_bar.setMaximum(int((params['v_end'] - params['v_start']) / params['v_step']) + 1)
+
+        # O máximo da barra tem de vir do MESMO vetor que o worker vai percorrer.
+        # Calcular por int((v_end - v_start)/v_step) + 1 diverge do np.arange por
+        # aritmética de float: p.ex. 1.0 a 10.0 com passo 0.3 dá 32 pontos no
+        # arange e 31 na fórmula — a barra chegava a 103% e nunca fechava certo.
+        voltages = np.arange(params['v_start'], params['v_end'] + params['v_step'], params['v_step'])
+        self.progress_bar.setMaximum(max(len(voltages), 1))
         self.progress_bar.setValue(0)
         
         self.lbl_h_result.setText("Recolha em curso... Não desligue a Fonte!")

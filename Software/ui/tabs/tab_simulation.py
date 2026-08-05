@@ -219,8 +219,10 @@ class TabSimulation(QWidget):
             'delay': float(self.input_delay.text())
         }
         
-        self.progress_bar.setMaximum(int((params['v_end'] - params['v_start']) / params['v_step']) + 1)
-        
+        # Mesmo vetor de tensões que o SimulationWorker vai percorrer — ver B7.
+        voltages = np.arange(params['v_start'], params['v_end'] + params['v_step'], params['v_step'])
+        self.progress_bar.setMaximum(max(len(voltages), 1))
+
         # Iniciar a Thread
         self.worker = SimulationWorker(params)
         self.worker.new_data_point.connect(self.update_realtime_plots)

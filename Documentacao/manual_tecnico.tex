@@ -1,0 +1,772 @@
+% Manual Técnico — Planck Automation
+% Compilar com: pdflatex manual_tecnico.tex  (rodar duas vezes pelo sumário)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage{listings}
+\usepackage[colorlinks=true,linkcolor=azulesc,urlcolor=azulesc]{hyperref}
+
+\definecolor{azulesc}{HTML}{0D47A1}
+\definecolor{fundocod}{HTML}{F5F5F5}
+\definecolor{comentario}{HTML}{558B2F}
+\definecolor{palavra}{HTML}{1565C0}
+
+\lstset{
+  basicstyle=\ttfamily\footnotesize,
+  backgroundcolor=\color{fundocod},
+  keywordstyle=\color{palavra}\bfseries,
+  commentstyle=\color{comentario}\itshape,
+  stringstyle=\color{black},
+  showstringspaces=false,
+  breaklines=true,
+  frame=leftline,
+  framesep=6pt,
+  xleftmargin=10pt,
+  literate={á}{{\'a}}1 {é}{{\'e}}1 {í}{{\'i}}1 {ó}{{\'o}}1 {ú}{{\'u}}1
+           {ã}{{\~a}}1 {õ}{{\~o}}1 {ç}{{\c c}}1 {â}{{\^a}}1 {ê}{{\^e}}1
+           {Á}{{\'A}}1 {É}{{\'E}}1 {ô}{{\^o}}1 {à}{{\`a}}1
+}
+
+\newcommand{\arqv}[1]{\texttt{#1}}
+\newcommand{\classe}[1]{\texttt{#1}}
+
+\newenvironment{nota}
+  {\par\medskip\noindent\begin{tabular}{|p{0.96\linewidth}|}\hline\rule{0pt}{3ex}}
+  {\\[1ex]\hline\end{tabular}\par\medskip}
+
+\title{\textbf{Planck Automation}\\[0.3em]
+\large Determinação da constante de Planck por radiação de corpo negro\\[0.6em]
+\Large Manual Técnico}
+\author{Arquitetura, modelo físico e lógica interna}
+\date{\today}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+Este documento descreve como o software funciona por dentro: a arquitetura em
+camadas, o modelo de concorrência, a cadeia de cálculo que converte medidas
+elétricas na constante de Planck, os drivers dos instrumentos e a bancada
+simulada. Destina-se a quem vai ler, manter ou estender o código. Para operar o
+software, consulte o \textbf{Manual do Usuário}.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =============================================================
+\section{Arquitetura}
+
+\subsection{Camadas}
+
+O software se organiza em quatro camadas, com dependências apontando sempre
+para baixo:
+
+\begin{center}
+\begin{tabular}{@{}p{3.0cm}p{11.5cm}@{}}
+\toprule
+\textbf{Camada} & \textbf{Responsabilidade e conteúdo} \\
+\midrule
+\arqv{ui/} &
+Tudo que o usuário vê: janela principal, abas, painéis, tema. Não conhece
+VISA nem faz contas de física. \\[0.4em]
+\arqv{core/} &
+Comunicação com os instrumentos: drivers SCPI, varredura e validação de
+recursos, bancada simulada. \\[0.4em]
+\arqv{utils/} &
+Funções puras: o modelo físico-matemático e a geração do relatório PDF. Não
+dependem de Qt nem de hardware. \\[0.4em]
+\arqv{content/} &
+Dados tipados que não são código --- hoje, a lista de referências
+bibliográficas. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Mapa de arquivos}
+
+\begin{center}
+\begin{longtable}{@{}p{5.6cm}r p{7.2cm}@{}}
+\toprule
+\textbf{Arquivo} & \textbf{Linhas} & \textbf{Papel} \\
+\midrule
+\endhead
+\arqv{main.py} & 18 & Ponto de entrada: cria o \classe{QApplication}, aplica o estilo Fusion e o tema escuro, abre a janela. \\[0.3em]
+\arqv{ui/main\_window.py} & 59 & \classe{MainWindow}: monta as quatro abas e garante o desligamento seguro ao fechar. \\[0.3em]
+\arqv{ui/theme.py} & 119 & Folha de estilos QSS do tema escuro. \\[0.3em]
+\arqv{ui/components/} \arqv{connection\_panel.py} & 171 & Painel de ligações: varredura, validação, modo demonstração e persistência das preferências. \\[0.3em]
+\arqv{ui/components/} \arqv{export\_dialog.py} & 39 & Janela de metadados do relatório. \\[0.3em]
+\arqv{ui/tabs/tab\_simulation.py} & 325 & \classe{SimulationWorker} e a interface da simulação analítica. \\[0.3em]
+\arqv{ui/tabs/tab\_experiment.py} & 445 & \classe{ExperimentWorker} e a interface da coleta na bancada. \\[0.3em]
+\arqv{ui/tabs/tab\_references.py} & 127 & Renderiza as fichas de referência. \\[0.3em]
+\arqv{core/hardware\_manager.py} & 257 & Drivers SCPI reais, threads de varredura e validação, seleção de drivers. \\[0.3em]
+\arqv{core/mock\_hardware.py} & 300 & Bancada simulada e drivers falsos. \\[0.3em]
+\arqv{utils/math\_models.py} & 86 & O modelo físico: temperatura, simulação e regressão. \\[0.3em]
+\arqv{utils/pdf\_exporter.py} & 79 & Montagem do relatório PDF com reportlab. \\[0.3em]
+\arqv{content/referencias.py} & 145 & Lista tipada das referências. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\subsection{Ciclo de vida}
+
+\arqv{main.py} faz três coisas e sai do caminho:
+
+\begin{lstlisting}[language=Python]
+app = QApplication(sys.argv)
+app.setStyle("Fusion")          # motor de renderização neutro
+app.setStyleSheet(DARK_THEME)   # QSS do tema escuro
+window = MainWindow()
+window.show()
+sys.exit(app.exec())
+\end{lstlisting}
+
+\classe{MainWindow} instancia um único \classe{HardwareManager} e o compartilha
+entre o painel de ligações e a aba de experimento. Ao fechar a janela, o
+\texttt{closeEvent} verifica se há coleta em curso; se houver, sinaliza a
+parada e \emph{aguarda} a thread terminar, para que a fonte seja desligada
+antes de o processo morrer.
+
+% =============================================================
+\section{Configuração persistente}
+
+O software guarda preferências no registro do Windows via \classe{QSettings},
+sob a organização \texttt{Senac} e a aplicação \texttt{PlanckAutomation}. As
+chaves usadas:
+
+\begin{center}
+\begin{tabular}{@{}p{5.4cm}p{9.2cm}@{}}
+\toprule
+\textbf{Chave} & \textbf{Conteúdo} \\
+\midrule
+\texttt{Connection/LastPWSName} & Nome amigável da última fonte validada \\
+\texttt{Connection/LastPWSRes} & Endereço VISA da última fonte validada \\
+\texttt{Connection/LastDMMName} & Nome amigável do último multímetro validado \\
+\texttt{Connection/LastDMMRes} & Endereço VISA do último multímetro validado \\
+\texttt{Connection/DemoMode} & Booleano: modo demonstração ligado \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Os nomes da organização e da aplicação estão centralizados em
+\arqv{core/hardware\_manager.py} (constantes \texttt{ORGANIZACAO} e
+\texttt{APLICACAO}), acessíveis pela função \texttt{preferencias()}.
+
+\begin{nota}
+\textbf{Acoplamento a observar.} A aba de experimento lê os endereços VISA
+diretamente do \classe{QSettings}, e não por sinal vindo do painel de ligações.
+É um canal lateral: funciona, mas cria uma dependência invisível entre os dois
+componentes. Endereços de instrumentos simulados nunca são gravados nessas
+chaves, para que desligar o modo demonstração devolva o último instrumento
+real.
+\end{nota}
+
+% =============================================================
+\section{Camada de hardware}
+
+\subsection{O driver da fonte}
+
+\classe{PWS4323\_Driver} encapsula os comandos SCPI da fonte:
+
+\begin{center}
+\begin{tabular}{@{}llp{6.6cm}@{}}
+\toprule
+\textbf{Método} & \textbf{Comando SCPI} & \textbf{Efeito} \\
+\midrule
+\texttt{configure\_safety\_limits} & \texttt{SOUR:CURR} & Define o limite de corrente \\
+\texttt{set\_output} & \texttt{OUTP ON/OFF} & Liga ou desliga a saída \\
+\texttt{set\_voltage} & \texttt{SOUR:VOLT} & Programa a tensão \\
+\texttt{measure\_current} & \texttt{MEAS:CURR?} & Lê a corrente entregue \\
+\texttt{turn\_off\_safely} & \texttt{SOUR:VOLT 0} $\to$ \texttt{OUTP OFF} & Zera e desliga \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\texttt{turn\_off\_safely} zera a tensão \emph{antes} de desligar a saída, e
+engole exceções: é chamado em caminhos de erro, onde falhar ruidosamente
+deixaria a fonte energizada.
+
+\subsection{O driver do multímetro}
+
+\classe{DMM4050\_Driver} é mais sensível à ordem das operações. Na abertura:
+
+\begin{lstlisting}[language=Python]
+if "SOCKET" in resource_string.upper():
+    self.inst.write_termination = '\n'   # conexões por rede exigem
+    self.inst.read_termination  = '\n'   # terminação explícita
+self.inst.write("SYST:REM")  # 1. força modo remoto
+self.inst.write("*CLS")      # 2. limpa o buffer de erros
+\end{lstlisting}
+
+Na configuração da medida:
+
+\begin{lstlisting}[language=Python]
+self.inst.write("CONF:CURR:DC")
+self.inst.write("SENS:CURR:DC:RANG 1e-4")  # faixa FIXA de 100 uA
+self.inst.write(f"SENS:CURR:DC:NPLC {nplc}")
+\end{lstlisting}
+
+\begin{nota}
+A faixa fixa de 100~$\mu$A é essencial. Com auto-range, o instrumento escolhe
+uma escala maior e os nanoampères da fotocorrente desaparecem na resolução.
+O \texttt{NPLC 10} integra cada leitura por dez ciclos da rede, o que
+filtra ruído de 50/60~Hz ao custo de tempo de aquisição.
+\end{nota}
+
+Ao fechar, o driver envia \texttt{SYST:LOC} antes de encerrar a comunicação,
+devolvendo o controle ao painel frontal do aparelho.
+
+\subsection{Threads de infraestrutura}
+
+Duas operações de rede não podem bloquear a interface, e por isso vivem em
+threads próprias:
+
+\begin{description}[style=nextline,leftmargin=0.6cm]
+  \item[\classe{ScannerThread}]
+    Lista os recursos VISA disponíveis, filtra a fonte pelo identificador de
+    fabricante no endereço USB, e testa o endereço de rede do multímetro com um
+    \texttt{*IDN?} de timeout curto. Emite duas listas de pares
+    (nome amigável, endereço).
+
+  \item[\classe{ValidatorThread}]
+    Abre um recurso, pergunta \texttt{*IDN?} e emite o resultado. Endereços que
+    começam com \texttt{DEMO::} respondem sem passar por VISA.
+\end{description}
+
+\classe{HardwareManager} é o \classe{QObject} que orquestra as duas e
+retransmite seus sinais para a interface. Ele mantém referências às threads em
+execução --- sem isso, o coletor de lixo do Python destruiria um
+\classe{QThread} ainda rodando --- e as solta quando cada thread termina,
+usando o sinal \texttt{finished} e um \texttt{wait()} de confirmação. Uma
+varredura em curso bloqueia novas até terminar.
+
+\subsection{Seleção de drivers e modo demonstração}
+
+Um único ponto decide qual par de drivers usar:
+
+\begin{lstlisting}[language=Python]
+def obter_drivers(modo_demonstracao: bool) -> tuple:
+    if modo_demonstracao:
+        return MockPWS4323_Driver, MockDMM4050_Driver
+    return PWS4323_Driver, DMM4050_Driver
+\end{lstlisting}
+
+Como os mocks expõem exatamente a mesma interface, quem consome não precisa
+saber qual recebeu: instancia e usa. O \classe{ExperimentWorker} só faz uma
+distinção adicional --- não abre o \classe{ResourceManager} do PyVISA quando
+está em modo demonstração.
+
+% =============================================================
+\section{O modelo físico}
+
+Todo o cálculo vive em \arqv{utils/math\_models.py}, em funções puras que
+recebem e devolvem vetores \texttt{numpy}. As constantes usadas são as da
+CODATA:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Símbolo} & \textbf{Valor} & \textbf{Grandeza} \\
+\midrule
+$c$ & $299\,792\,458$~m/s & Velocidade da luz \\
+$k_B$ & $1{,}380649 \times 10^{-23}$~J/K & Constante de Boltzmann \\
+$h_{\text{ref}}$ & $6{,}62607015 \times 10^{-34}$~J$\cdot$s & Constante de Planck \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Da resistência à temperatura}
+
+A resistência do tungstênio varia com a temperatura segundo um polinômio de
+segundo grau, com $T_c$ em graus Celsius:
+
+\begin{equation}
+R(T_c) = R_0\,\bigl(1 + \alpha T_c + \beta T_c^2\bigr)
+\label{eq:rt}
+\end{equation}
+
+O experimento mede $R$ e precisa de $T$. Reorganizando a
+equação~\eqref{eq:rt} como uma equação do segundo grau em $T_c$:
+
+\begin{equation}
+\underbrace{R_0\beta}_{a}\,T_c^2 \;+\; \underbrace{R_0\alpha}_{b}\,T_c
+\;+\; \underbrace{(R_0 - R)}_{c} \;=\; 0
+\end{equation}
+
+e resolvendo por Bhaskara, tomando a raiz positiva (a única com sentido
+físico, pois $R$ cresce com $T$):
+
+\begin{equation}
+T_c = \frac{-R_0\alpha + \sqrt{(R_0\alpha)^2 - 4 R_0\beta\,(R_0 - R)}}{2 R_0 \beta},
+\qquad
+T[\mathrm{K}] = T_c + 273{,}15
+\label{eq:bhaskara}
+\end{equation}
+
+É exatamente isso que \texttt{calculate\_temperature} implementa, de forma
+vetorizada.
+
+\begin{nota}
+\textbf{Limite conhecido.} Quando a resistência medida fica \emph{abaixo} de
+$R_0$ --- o que acontece em tensões próximas de zero --- a
+equação~\eqref{eq:bhaskara} ainda tem solução matemática, mas ela não tem
+sentido físico. É a origem das temperaturas da ordem de 77~K que aparecem no
+início das varreduras completas.
+\end{nota}
+
+\subsection{Da temperatura à constante de Planck}
+
+A distribuição de Planck para a radiância espectral de um corpo negro é:
+
+\begin{equation}
+I(\lambda,T) = \frac{2\pi c^2 h}{\lambda^5}\,
+\frac{1}{e^{hc/\lambda k_B T} - 1}
+\end{equation}
+
+Quando $hc/(\lambda k_B T) \gg 1$, o termo $-1$ do denominador é desprezível e
+vale a \textbf{aproximação de Wien}:
+
+\begin{equation}
+I(\lambda,T) \;\approx\; \frac{2\pi c^2 h}{\lambda^5}\,
+\exp\!\left(-\frac{hc}{\lambda k_B T}\right)
+\label{eq:wien}
+\end{equation}
+
+Nas condições deste experimento ($\lambda = 590$~nm, $T$ até 3000~K) o expoente
+vale cerca de 8, e o erro cometido pela aproximação é da ordem de
+$e^{-8} \approx 0{,}03\%$ --- desprezível diante das demais fontes de erro.
+
+O LED responde linearmente à radiação que recebe na sua faixa espectral, então
+a fotocorrente medida é proporcional a $I(\lambda,T)$. Tomando o logaritmo da
+equação~\eqref{eq:wien}:
+
+\begin{equation}
+\ln I \;=\; \underbrace{\ln\!\left(\frac{2\pi c^2 h}{\lambda^5}\right)}_{\text{constante}}
+\;-\; \frac{hc}{\lambda k_B}\cdot\frac{1}{T}
+\end{equation}
+
+Ou seja: \textbf{$\ln I$ contra $1/T$ é uma reta}, cuja inclinação é
+
+\begin{equation}
+m = -\frac{hc}{\lambda k_B}
+\qquad\Longrightarrow\qquad
+\boxed{\;h = -\,\frac{m\,\lambda\,k_B}{c}\;}
+\label{eq:h}
+\end{equation}
+
+Toda a montagem experimental existe para medir essa inclinação.
+
+\subsection{A regressão}
+
+\texttt{calculate\_planck\_constant} executa a cadeia completa:
+
+\begin{enumerate}
+  \item \textbf{Filtra os pontos utilizáveis.} Descarta temperaturas nulas ou
+        não finitas (que estourariam o cálculo de $1/T$) e fotocorrentes abaixo
+        de um limiar de confiança.
+  \item \textbf{Lineariza.} Constrói $x = 1/T$ e $y = \ln I$.
+  \item \textbf{Ajusta por mínimos quadrados.} Resolve $y = mx + c$ com
+        \texttt{numpy.linalg.lstsq}. Exige ao menos dois pontos válidos; abaixo
+        disso devolve zeros.
+  \item \textbf{Avalia a qualidade.} Calcula
+        $R^2 = 1 - \mathrm{SS}_{\text{res}}/\mathrm{SS}_{\text{tot}}$, com
+        guarda para o caso $\mathrm{SS}_{\text{tot}} = 0$ (todos os $\ln I$
+        iguais), em que $R^2$ é indefinido e se reporta zero.
+  \item \textbf{Extrai $h$} pela equação~\eqref{eq:h} e calcula o erro relativo
+        contra $h_{\text{ref}}$.
+\end{enumerate}
+
+Retorna a tupla \texttt{(h, erro\_relativo, m, c, r2)}.
+
+\subsection{O limiar de confiança e a região de Wien}
+\label{sec:limiar}
+
+O passo 1 é o mais delicado do software, e merece detalhamento.
+
+A fotocorrente cai exponencialmente com a queda da temperatura. Abaixo de
+aproximadamente 1800~K ela se torna menor que o ruído de fundo do multímetro:
+o que se lê não é mais sinal, é o piso do instrumento. Esses pontos não carregam
+informação sobre $h$, mas entram na regressão como se carregassem, e a
+distorcem.
+
+O filtro atual é um limiar fixo sobre a fotocorrente:
+
+\begin{lstlisting}[language=Python]
+limiar_confianca = 1e-9   # 1 nA
+valid_indices = temperatura_valida & (photocurrent > limiar_confianca)
+\end{lstlisting}
+
+O efeito desse critério pode ser medido. Numa varredura completa de 0 a 12~V
+com 49 pontos, gerada pela bancada simulada:
+
+\begin{center}
+\begin{tabular}{@{}lrrrr@{}}
+\toprule
+\textbf{Critério de corte} & \textbf{Pontos} & \textbf{$h$ (J$\cdot$s)} & \textbf{Erro} & \textbf{$R^2$} \\
+\midrule
+Nenhum & 49 & $6{,}9 \times 10^{-36}$ & 99{,}0\% & 0{,}062 \\
+$I > 1$~nA (limiar atual) & 49 & $6{,}9 \times 10^{-36}$ & 99{,}0\% & 0{,}062 \\
+$I > 25$~nA & 27 & $6{,}32 \times 10^{-34}$ & 4{,}6\% & 0{,}999 \\
+$T > 1800$~K & 29 & $6{,}31 \times 10^{-34}$ & 4{,}8\% & 0{,}999 \\
+$T > 2000$~K & 23 & $6{,}42 \times 10^{-34}$ & 3{,}1\% & 0{,}999 \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}
+\textbf{Leitura do quadro.} O limiar de 1~nA \emph{não descarta nenhum ponto}:
+o próprio piso do multímetro é da ordem de 4~nA, portanto maior que o limiar.
+Um corte coerente com o instrumento precisa vir do modelo de erro dele --- a
+especificação de exatidão na faixa de 100~$\mu$A tem um termo de fundo de
+25~nA --- e não de um número escolhido à mão. Essa correção é trabalho
+planejado, e a bancada simulada existe justamente para poder verificá-la.
+\end{nota}
+
+\subsection{A simulação analítica}
+
+\texttt{simulate\_experiment\_data} gera dados sintéticos para a aba de
+Simulação. Ela impõe um vetor de temperaturas linearmente espaçado entre 1500 e
+3000~K, calcula a resistência correspondente pela equação~\eqref{eq:rt}, obtém
+a corrente por $i = V/R$, e aplica a equação~\eqref{eq:wien} com $h_{\text{ref}}$
+para produzir a fotocorrente. Sobre o resultado soma ruído gaussiano
+proporcional ao sinal mais um piso instrumental, e limita os valores por baixo
+para não quebrar o logaritmo.
+
+\begin{nota}
+\textbf{Limite conhecido.} A temperatura é imposta \emph{independentemente} das
+tensões: a simulação não reproduz a relação física entre tensão aplicada e
+temperatura atingida. Isso é adequado para demonstrar a cadeia de cálculo, mas
+não para estudar o comportamento do filamento. Para esse fim existe a bancada
+simulada (seção~\ref{sec:mock}), que resolve o balanço de energia de verdade.
+\end{nota}
+
+% =============================================================
+\section{A bancada simulada}
+\label{sec:mock}
+
+\arqv{core/mock\_hardware.py} implementa um filamento e um LED virtuais que
+permitem exercitar todo o software sem instrumentos.
+
+\subsection{Por que os dois drivers compartilham estado}
+
+Na bancada real, fonte e multímetro estão acoplados pelo filamento: a tensão
+que a fonte aplica define a temperatura, e é a temperatura que o LED enxerga.
+Dois mocks independentes não conseguiriam reproduzir isso. Por isso ambos
+apontam para uma instância única de \classe{BancadaSimulada}, que guarda o
+estado físico.
+
+\subsection{O modelo térmico}
+
+Em regime estacionário, a potência elétrica entregue ao filamento iguala a
+potência dissipada:
+
+\begin{equation}
+\frac{V^2}{R(T)} \;=\; k_{\text{rad}}\bigl(T^4 - T_{\text{amb}}^4\bigr)
+\;+\; k_{\text{cond}}\bigl(T - T_{\text{amb}}\bigr)
+\label{eq:balanco}
+\end{equation}
+
+O primeiro termo é a radiação (lei de Stefan--Boltzmann); o segundo agrupa as
+perdas por condução e convecção, que dominam em temperaturas baixas. Com
+$R(T)$ dado pela equação~\eqref{eq:rt}, a diferença entre os dois lados é
+monótona decrescente em $T$, o que permite resolver por bissecção sem precisar
+de derivada:
+
+\begin{lstlisting}[language=Python]
+def desequilibrio(t):
+    return tensao**2 / self.resistencia(t) - (
+        self.k_rad * (t**4 - T_AMBIENTE**4)
+        + self.k_cond * (t - T_AMBIENTE))
+\end{lstlisting}
+
+\subsection{Como as constantes foram obtidas}
+
+$k_{\text{rad}}$ e $k_{\text{cond}}$ não foram arbitrados. Foram ajustados por
+mínimos quadrados sobre os 1127 pontos úteis dos 52 arquivos CSV de coletas
+reais guardados em \texttt{data\_backup/}, resultando em resíduo mediano de
+2{,}9\% na potência. A 2500~K, o termo radiativo responde por 99\% da
+dissipação --- coerente com a física esperada.
+
+Do ajuste preserva-se a \emph{razão} $k_{\text{cond}}/k_{\text{rad}}$, que
+descreve a forma da curva. A escala é recalibrada na construção do objeto, por
+bissecção, para que o filamento virtual atinja 2540~K em 12~V --- o topo
+efetivamente medido na bancada real.
+
+A constante do LED é fixada de modo que a fotocorrente na âncora valha
+$7{,}2 \times 10^{-7}$~A, o valor máximo observado nas coletas reais. O
+expoente usa $h_{\text{ref}}$: os dados gerados \emph{contêm} o valor
+verdadeiro de $h$, e recuperá-lo é o teste de que a cadeia de cálculo está
+correta.
+
+\subsection{Erros e ruídos reproduzidos}
+
+\begin{center}
+\begin{longtable}{@{}p{5.0cm}p{9.6cm}@{}}
+\toprule
+\textbf{Efeito} & \textbf{Como é modelado} \\
+\midrule
+\endhead
+Erro de programação da fonte & Distribuição retangular sobre o valor pedido;
+o valor efetivamente aplicado difere do programado. \\[0.3em]
+Erro de leitura da fonte & Distribuição retangular, com termos proporcional e
+fixo, separadamente para tensão e corrente. \\[0.3em]
+Resolução do multímetro & Leitura arredondada para passos de 100~pA. \\[0.3em]
+Piso do multímetro & Um deslocamento sistemático de alguns nanoampères mais
+ruído gaussiano --- reproduz o que os CSVs reais mostram em tensão baixa. \\[0.3em]
+Modo corrente constante & Se a corrente calculada excede o limite configurado,
+a fonte segura a corrente e a tensão nos terminais cai. \\[0.3em]
+Saída desligada & Corrente nula e temperatura de volta ao ambiente. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+O gerador aleatório aceita semente, o que torna uma varredura inteiramente
+reprodutível --- útil para testes de regressão.
+
+\begin{nota}
+\textbf{O piso é reproduzido de propósito.} Sem ele, o mock esconderia
+justamente o problema descrito na seção~\ref{sec:limiar}, e não haveria como
+verificar a correção quando ela for implementada.
+\end{nota}
+
+\subsection{O que o mock ainda não reproduz}
+
+Inércia térmica --- o filamento virtual salta direto ao regime estacionário,
+o que é aceitável porque os workers já esperam o tempo de estabilização --- e a
+resistência dos cabos da medição a dois fios.
+
+% =============================================================
+\section{Concorrência}
+
+\subsection{Por que threads}
+
+Uma coleta real leva minutos e é dominada por esperas: estabilização térmica,
+ida e volta de cada comando SCPI. Fazer isso na thread da interface congelaria
+a janela. Cada coleta roda, portanto, em um \classe{QThread} próprio, que se
+comunica com a interface exclusivamente por sinais.
+
+\begin{nota}
+Os drivers VISA são instanciados \emph{dentro} da thread que os usa. Isso é
+deliberado: conexões VISA não devem ser compartilhadas entre threads.
+\end{nota}
+
+\subsection{Os sinais}
+
+\begin{center}
+\begin{tabular}{@{}p{3.4cm}p{4.0cm}p{7.0cm}@{}}
+\toprule
+\textbf{Sinal} & \textbf{Carga} & \textbf{Quando} \\
+\midrule
+\texttt{new\_data\_point} & tensão, temperatura, fotocorrente & A cada ponto medido \\[0.3em]
+\texttt{finished\_exp} & $h$, erro, $m$, $c$, $R^2$ & Ao concluir a regressão \\[0.3em]
+\texttt{error\_occurred} & mensagem & Em falha de comunicação ou parada precoce \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Parada segura}
+
+\texttt{stop()} apenas baixa uma flag; a thread a consulta no topo de cada
+iteração e sai do laço por conta própria. A interface \emph{não} espera pela
+thread nesse momento --- ela continua respondendo, e a thread desliga a fonte,
+calcula o resultado parcial e emite \texttt{finished\_exp} naturalmente.
+
+O bloco \texttt{finally} do laço de coleta é o que garante a segurança da
+bancada: aconteça o que acontecer, a fonte é zerada, desligada e fechada, e o
+multímetro devolvido ao modo local.
+
+\begin{lstlisting}[language=Python]
+finally:
+    if pws:
+        pws.turn_off_safely()   # zera a tensão e desliga a saída
+        pws.close()
+    if dmm:
+        dmm.close()             # devolve o painel frontal ao operador
+\end{lstlisting}
+
+% =============================================================
+\section{O fluxo de um experimento}
+
+Passo a passo, do clique ao resultado:
+
+\begin{enumerate}
+  \item A interface lê os nove campos de parâmetros, converte para número e
+        monta um dicionário.
+  \item Lê do \classe{QSettings} o modo demonstração e os endereços dos
+        instrumentos.
+  \item Dimensiona a barra de progresso pelo \emph{mesmo} vetor de tensões que
+        o worker vai percorrer --- calcular o total por outra fórmula produz
+        divergências por aritmética de ponto flutuante.
+  \item Cria o \classe{ExperimentWorker}, conecta os três sinais e inicia a
+        thread.
+  \item O worker escolhe o par de drivers, instancia ambos, configura o limite
+        de corrente da fonte e a faixa/integração do multímetro.
+  \item Escreve o cabeçalho do CSV.
+  \item Liga a saída da fonte e entra no laço. Para cada tensão:
+    \begin{enumerate}[label=\alph*.]
+      \item programa a tensão;
+      \item aguarda o tempo de estabilização térmica;
+      \item lê a corrente na fonte e a fotocorrente no multímetro;
+      \item calcula $R = V/i$, com piso na corrente para evitar divisão por zero;
+      \item converte $R$ em $T$ pela equação~\eqref{eq:bhaskara};
+      \item grava a linha no CSV \emph{imediatamente}, com abertura e
+            fechamento do arquivo a cada ponto;
+      \item emite \texttt{new\_data\_point}, e a interface atualiza gráficos,
+            registro e barra.
+    \end{enumerate}
+  \item Ao fim (ou na parada), desliga a saída e, havendo mais de dois pontos,
+        chama \texttt{calculate\_planck\_constant} e emite o resultado.
+  \item O bloco \texttt{finally} garante o desligamento seguro.
+\end{enumerate}
+
+\begin{nota}
+\textbf{Sobre a resistência calculada.} O software usa a tensão
+\emph{programada} para calcular $R = V/i$, não a tensão lida de volta da fonte.
+A leitura de retorno é mais exata que o valor programado, e a medição é a dois
+fios, então a resistência dos cabos entra no valor de $R$. Os drivers já
+expõem um método de leitura de tensão preparado para essa correção.
+\end{nota}
+
+% =============================================================
+\section{Formato dos dados}
+
+\subsection{O CSV de coleta}
+
+Um arquivo por execução, em \texttt{Software/data\_backup/}:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+Coletas reais & \texttt{exp\_planck\_AAAAMMDD\_HHMMSS.csv} \\
+Coletas simuladas & \texttt{demo\_planck\_AAAAMMDD\_HHMMSS.csv} \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Prefixos distintos impedem que dados de demonstração contaminem o acervo de
+medidas reais --- que é, entre outras coisas, a base de calibração da bancada
+simulada.
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Coluna} & \textbf{Unidade} & \textbf{Origem} \\
+\midrule
+\texttt{Tensao\_Fonte\_V} & V & Valor programado na fonte \\
+\texttt{Corrente\_Filamento\_A} & A & \texttt{MEAS:CURR?} na fonte \\
+\texttt{Resistencia\_Ohms} & $\Omega$ & Calculada, $V/i$ \\
+\texttt{Temperatura\_K} & K & Calculada, equação~\eqref{eq:bhaskara} \\
+\texttt{Fotocorrente\_A} & A & \texttt{READ?} no multímetro \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\begin{nota}
+Este formato é estável e há dados históricos gravados nele. Alterações de
+esquema devem preservar a leitura dos arquivos antigos.
+\end{nota}
+
+\subsection{O relatório PDF}
+
+\texttt{generate\_planck\_report} monta o documento com \texttt{reportlab},
+recebendo quatro blocos: resumo de resultados, dicionário de parâmetros,
+metadados informados pelo usuário e o caminho de uma imagem. A imagem é uma
+captura da área de gráficos, gerada no momento da exportação e apagada em
+seguida.
+
+% =============================================================
+\section{Camada de conteúdo}
+
+\arqv{content/referencias.py} guarda a lista de referências como dados tipados,
+não como código de interface. Cada item é uma \texttt{dataclass}
+\classe{Referencia} congelada, com título, autoria, publicação, identificador,
+nome do arquivo local, URLs oficiais, condição de acesso, o uso que o software
+faz do documento e a lista de trechos aproveitados.
+
+Duas propriedades calculadas resolvem o caminho do arquivo na pasta
+\texttt{Docs/} e informam se ele está presente --- a interface usa isso para
+desabilitar o botão de cópia local quando o PDF não existe.
+
+Para acrescentar um documento, basta acrescentar um item à lista: a aba se
+adapta sozinha.
+
+% =============================================================
+\section{Aparência}
+
+\arqv{ui/theme.py} exporta uma única string QSS aplicada globalmente. A paleta é
+escura, com fundo quase preto, superfícies em cinza-escuro e azul como cor de
+destaque. Os gráficos do \texttt{pyqtgraph} são configurados separadamente, com
+fundo e primeiro plano combinando com o tema.
+
+\begin{nota}
+Alguns componentes ainda trazem estilo embutido no próprio código, em vez de
+virem da folha global. É um ponto de dívida técnica conhecido, a resolver numa
+revisão de interface.
+\end{nota}
+
+% =============================================================
+\section{Como estender}
+
+\begin{description}[style=nextline,leftmargin=0.6cm]
+
+  \item[Acrescentar uma referência]
+    Adicione um item à lista em \arqv{content/referencias.py}, com o nome do
+    arquivo dentro de \texttt{Docs/}. Nada mais precisa mudar.
+
+  \item[Suportar outro instrumento]
+    Escreva uma classe com os mesmos métodos públicos do driver existente e
+    faça \texttt{obter\_drivers} devolvê-la. Nenhum outro arquivo precisa saber.
+    O arquivo de testes verifica automaticamente que a interface do mock cobre
+    a do driver real --- o mesmo critério vale para um driver novo.
+
+  \item[Alterar o modelo físico]
+    Todas as contas estão em \arqv{utils/math\_models.py}, em funções puras sem
+    dependência de Qt. São testáveis isoladamente.
+
+  \item[Acrescentar uma aba]
+    Crie o widget em \arqv{ui/tabs/} e registre-o em \texttt{setup\_ui}, na
+    janela principal.
+
+\end{description}
+
+% =============================================================
+\section{Testes}
+
+\texttt{Tests/test\_mock\_hardware.py} roda sem hardware e sem dependências
+extras:
+
+\begin{quote}\ttfamily
+cd Software \&\& python ../Tests/test\_mock\_hardware.py
+\end{quote}
+
+Cobre quatro grupos de verificação: que os mocks são substituíveis pelos
+drivers reais (comparando as interfaces por introspecção), que a física
+simulada está calibrada nos pontos de âncora e é monótona, que os
+comportamentos do instrumento aparecem (piso do multímetro, modo corrente
+constante, corte seguro), e que a cadeia de cálculo recupera $h$ dos dados
+gerados.
+
+Um dos testes fixa deliberadamente o \emph{erro esperado} numa varredura
+completa. Quando o critério de corte descrito na seção~\ref{sec:limiar} for
+corrigido, esse teste falhará --- e é assim que se saberá que a correção
+funcionou.
+
+\vfill
+\begin{center}
+\rule{0.5\linewidth}{0.4pt}\\[0.5em]
+\small Documento companheiro: \textbf{Manual do Usuário}, com o procedimento de
+operação.
+\end{center}
+
+\end{document}

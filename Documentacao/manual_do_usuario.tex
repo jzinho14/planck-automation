@@ -1,0 +1,539 @@
+% Manual do Usuário — Planck Automation
+% Compilar com: pdflatex manual_do_usuario.tex  (rodar duas vezes pelo sumário)
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[brazil]{babel}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{amsmath}
+\usepackage{booktabs}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{longtable}
+\usepackage[colorlinks=true,linkcolor=azulesc,urlcolor=azulesc]{hyperref}
+
+\definecolor{azulesc}{HTML}{0D47A1}
+\definecolor{cinzaclaro}{HTML}{F0F0F0}
+\definecolor{ambar}{HTML}{8D6E00}
+
+\newcommand{\aba}[1]{\textsf{\textbf{#1}}}
+\newcommand{\botao}[1]{\textsf{[#1]}}
+\newcommand{\campo}[1]{\textsf{\textit{#1}}}
+
+\newenvironment{aviso}
+  {\par\medskip\noindent\begin{tabular}{|p{0.96\linewidth}|}\hline\rule{0pt}{3ex}}
+  {\\[1ex]\hline\end{tabular}\par\medskip}
+
+\title{\textbf{Planck Automation}\\[0.3em]
+\large Determinação da constante de Planck por radiação de corpo negro\\[0.6em]
+\Large Manual do Usuário}
+\author{Documentação do software de bancada}
+\date{\today}
+
+\begin{document}
+\maketitle
+\thispagestyle{empty}
+
+\begin{abstract}
+\noindent
+Este manual descreve como operar o software \emph{Planck Automation}: instalação,
+ligação aos instrumentos, execução de uma simulação e de um experimento real,
+leitura dos resultados e geração de relatórios. Para entender \emph{como} o
+software funciona por dentro --- a arquitetura, o modelo físico e a lógica de
+cálculo --- consulte o documento companheiro \textbf{Manual Técnico}.
+\end{abstract}
+
+\tableofcontents
+\newpage
+
+% =============================================================
+\section{O que é este software}
+
+O \textbf{Planck Automation} automatiza um experimento didático de física
+moderna: determinar a constante de Planck $h$ medindo a radiação emitida por um
+filamento de tungstênio aquecido.
+
+O princípio, retirado do artigo de Cavalcante \& Haag (2005), é usar um
+\textbf{LED como sensor espectral seletivo}. Um LED só responde a uma faixa
+estreita de comprimentos de onda em torno de um $\lambda$ característico. Se o
+filamento for aquecido a temperaturas crescentes e a fotocorrente do LED for
+medida a cada temperatura, a relação entre as duas grandezas segue a
+aproximação de Wien para a radiação de corpo negro. Linearizando essa relação,
+a inclinação da reta resultante contém $h$.
+
+O software executa esse procedimento de ponta a ponta:
+
+\begin{enumerate}[nosep]
+  \item aplica uma sequência crescente de tensões ao filamento, usando uma
+        fonte programável;
+  \item aguarda a estabilização térmica em cada ponto;
+  \item lê a corrente do filamento (na fonte) e a fotocorrente do LED (no
+        multímetro);
+  \item calcula a resistência $R = V/i$ e, a partir dela, a temperatura do
+        filamento;
+  \item grava tudo em um arquivo CSV, ponto a ponto, enquanto coleta;
+  \item ao final, faz a regressão linear e apresenta $h$, o erro relativo em
+        relação ao valor de referência e o coeficiente $R^2$.
+\end{enumerate}
+
+\subsection{Instrumentos}
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Instrumento} & \textbf{Modelo} & \textbf{Papel} \\
+\midrule
+Fonte de alimentação & Tektronix PWS4323 & Aquece o filamento (0--32~V, 0--3~A) \\
+Multímetro & Tektronix DMM4050 & Lê a fotocorrente do LED \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+A fonte conecta por \textbf{USB}; o multímetro, por \textbf{rede TCP/IP}. Os
+dois falam o protocolo SCPI através da camada VISA.
+
+% =============================================================
+\section{Instalação e execução}
+
+\subsection{Requisitos}
+
+\begin{itemize}[nosep]
+  \item Windows com Python 3.10 ou superior (o ambiente de referência usa 3.13);
+  \item driver VISA instalado (NI-VISA ou TekVISA) --- necessário apenas para
+        operar a bancada real;
+  \item as bibliotecas listadas em \texttt{Software/requirements.txt}:
+        PySide6, PyVISA, numpy, pandas, pyqtgraph e reportlab.
+\end{itemize}
+
+\subsection{Preparando o ambiente}
+
+Na primeira vez, dentro da pasta \texttt{Software}:
+
+\begin{quote}\ttfamily
+python -m venv .venv\\
+.venv$\backslash$Scripts$\backslash$activate\\
+pip install -r requirements.txt
+\end{quote}
+
+\subsection{Executando}
+
+\begin{quote}\ttfamily
+cd Software\\
+python main.py
+\end{quote}
+
+A janela abre com \textbf{quatro abas} no topo. O tema é escuro por padrão.
+
+\begin{aviso}
+\textbf{Importante:} execute sempre a partir da pasta \texttt{Software}. Os
+arquivos de coleta são gravados em \texttt{data\_backup/} relativo ao diretório
+de trabalho.
+\end{aviso}
+
+% =============================================================
+\section{Visão geral da janela}
+
+\begin{center}
+\begin{tabular}{@{}p{4.2cm}p{10.5cm}@{}}
+\toprule
+\textbf{Aba} & \textbf{Para que serve} \\
+\midrule
+\aba{Hardware e Ligações} & Encontrar e validar os instrumentos; ligar ou
+desligar o modo demonstração. \\[0.4em]
+\aba{Simulação} & Gerar dados sintéticos e ver toda a cadeia de cálculo
+funcionando, sem instrumentos. \\[0.4em]
+\aba{Experimento Real} & Executar a varredura na bancada e coletar medidas
+de verdade. \\[0.4em]
+\aba{Referências} & Consultar o artigo de base e os manuais dos instrumentos,
+com o caminho oficial de cada um. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =============================================================
+\section{Aba Hardware e Ligações}
+
+É por aqui que se começa. A aba tem duas caixas de seleção (uma para cada
+instrumento), dois botões e um interruptor de modo.
+
+\subsection{Encontrando os instrumentos}
+
+\begin{description}[style=nextline,leftmargin=0.6cm]
+  \item[\botao{Procurar Instrumentos}]
+    Varre o barramento VISA à procura da fonte (por USB) e testa o endereço de
+    rede do multímetro. O resultado preenche as duas caixas de seleção.
+    Enquanto uma varredura está em curso, cliques adicionais no botão são
+    ignorados --- não é necessário clicar repetidamente.
+
+  \item[\botao{Verificar Ligações}]
+    Pergunta a identificação (\texttt{*IDN?}) a cada instrumento selecionado e
+    mostra o resultado no indicador ao lado da caixa.
+\end{description}
+
+\subsection{Os indicadores de estado}
+
+\begin{center}
+\begin{tabular}{@{}cl@{}}
+\toprule
+\textbf{Indicador} & \textbf{Significado} \\
+\midrule
+Círculo branco & Ainda não verificado \\
+Círculo verde & Instrumento respondeu; ligação válida \\
+Círculo amarelo & Instrumento \emph{simulado} (modo demonstração) \\
+Círculo vermelho & Falha na ligação \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Passar o mouse sobre o indicador mostra a resposta completa do instrumento (ou
+a mensagem de erro, se falhou).
+
+\subsection{As caixas de seleção são editáveis}
+
+Se a varredura não encontrar o multímetro --- por exemplo, porque o endereço de
+rede mudou --- é possível digitar o endereço diretamente na caixa, no formato:
+
+\begin{quote}\ttfamily
+TCPIP::192.168.1.107::3490::SOCKET
+\end{quote}
+
+e clicar em \botao{Verificar Ligações}. O último par nome/endereço validado com
+sucesso é lembrado para a próxima vez que o software abrir.
+
+\subsection{Modo demonstração}
+\label{sec:demo}
+
+O interruptor \campo{Modo demonstração --- bancada simulada, sem hardware}
+substitui os dois instrumentos por versões virtuais. Com ele ligado:
+
+\begin{itemize}[nosep]
+  \item nenhum comando é enviado pela rede ou pela USB;
+  \item as caixas passam a mostrar \emph{PWS4323 (simulado)} e
+        \emph{DMM4050 (simulado)};
+  \item os indicadores ficam amarelos;
+  \item a aba \aba{Experimento Real} funciona normalmente, mas os dados vêm de
+        um filamento e um LED virtuais.
+\end{itemize}
+
+O filamento simulado tem valores fixos, informados na própria tela:
+$R_0 = 1{,}2~\Omega$, $\alpha = 5{,}23 \times 10^{-3}$,
+$\beta = 7{,}0 \times 10^{-7}$ e um LED de $\lambda = 590$~nm. \textbf{Use esses
+mesmos valores nos parâmetros do experimento}, senão a temperatura calculada
+não corresponderá à temperatura real do filamento virtual.
+
+\begin{aviso}
+Coletas em modo demonstração são gravadas com o prefixo
+\texttt{demo\_planck\_} em vez de \texttt{exp\_planck\_}, para que dados
+simulados nunca se misturem ao acervo de medidas reais.
+\end{aviso}
+
+O estado do interruptor é lembrado entre sessões. Ao desligá-lo, o software
+recupera o último instrumento real validado.
+
+% =============================================================
+\section{Aba Simulação}
+
+Gera dados sintéticos e roda a mesma cadeia de cálculo do experimento real.
+Serve para conhecer o fluxo, testar parâmetros e demonstrar o método sem
+ocupar a bancada.
+
+\subsection{Parâmetros}
+
+A aba se divide em duas sub-abas: \campo{1. Parâmetros e Varredura} e
+\campo{2. Coleta e Resultados}.
+
+\begin{center}
+\begin{longtable}{@{}p{4.6cm}p{2.2cm}p{7.5cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Padrão} & \textbf{O que é} \\
+\midrule
+\endhead
+Resistência a frio $R_0$ & 1,2~$\Omega$ &
+Resistência do filamento usada como referência no modelo $R(T)$. \\[0.3em]
+Coef. linear $\alpha$ & 5,23e-3~K$^{-1}$ &
+Primeiro coeficiente de temperatura da resistência do tungstênio. \\[0.3em]
+Coef. quadrático $\beta$ & 7,0e-7~K$^{-2}$ &
+Segundo coeficiente, que dá a curvatura de $R(T)$. \\[0.3em]
+Comprimento de onda $\lambda$ & 590~nm &
+Comprimento de onda característico do LED usado como sensor. \\[0.3em]
+Fator de ruído & 0,05 &
+Amplitude do ruído aleatório somado à fotocorrente, como fração do sinal. \\[0.3em]
+Tensão inicial & 0,5~V & Primeiro ponto da varredura. \\[0.3em]
+Tensão final & 12,0~V & Último ponto da varredura. \\[0.3em]
+Passo de tensão & 0,1~V & Incremento entre pontos. \\[0.3em]
+Intervalo de captura & 50~ms &
+Pausa entre pontos, apenas para a animação dos gráficos. \\
+\bottomrule
+\end{longtable}
+\end{center}
+
+\subsection{Executando}
+
+Clique em \botao{Iniciar Coleta Simulada}. O software muda automaticamente para
+a sub-aba de resultados e começa a desenhar os pontos. \botao{Parar Coleta}
+interrompe a qualquer momento.
+
+Dois gráficos são atualizados em tempo real:
+
+\begin{itemize}[nosep]
+  \item \textbf{Monitor de Fotocorrente}: a fotocorrente medida contra a tensão
+        aplicada --- a curva crua, fortemente não linear;
+  \item \textbf{Linearização $\ln(I)$ vs $1/T$}: os mesmos dados na forma
+        linearizada. É a inclinação \emph{desta} reta que fornece $h$.
+\end{itemize}
+
+Ao terminar, a reta de ajuste aparece tracejada sobre os pontos, e os dois
+painéis superiores mostram o valor de $h$ obtido, o erro relativo e o $R^2$.
+
+% =============================================================
+\section{Aba Experimento Real}
+
+\begin{aviso}
+\textbf{Segurança.} O filamento chega a mais de 2500~K. Antes de iniciar,
+confirme que a montagem está correta e que o limite de corrente da fonte está
+adequado ao filamento em uso. O software zera a tensão e desliga a saída da
+fonte em qualquer caminho de erro ou parada, inclusive se a janela for fechada
+durante a coleta --- mas isso não substitui a conferência da montagem.
+\end{aviso}
+
+\subsection{Antes de começar}
+
+\begin{enumerate}[nosep]
+  \item Ligue os dois instrumentos e confirme na aba \aba{Hardware e Ligações}
+        que ambos aparecem em verde.
+  \item Meça a resistência a frio do filamento e anote o valor.
+  \item Confirme o comprimento de onda do LED que será usado como sensor.
+\end{enumerate}
+
+\subsection{Parâmetros}
+
+A sub-aba \campo{1. Parâmetros Reais} tem dois grupos.
+
+\paragraph{Calibração Física do Filamento.}
+Os mesmos quatro campos da simulação: $R_0$, $\alpha$, $\beta$ e $\lambda$. São
+eles que convertem a resistência medida em temperatura e a inclinação da reta
+em $h$.
+
+\paragraph{Varredura SCPI.}
+
+\begin{center}
+\begin{tabular}{@{}p{4.6cm}p{2.2cm}p{7.5cm}@{}}
+\toprule
+\textbf{Campo} & \textbf{Padrão} & \textbf{O que é} \\
+\midrule
+Tensão inicial & 1,0~V & Primeira tensão aplicada ao filamento. \\[0.3em]
+Tensão final & 10,0~V & Última tensão da varredura. \\[0.3em]
+Passo de tensão & 0,5~V & Incremento entre pontos. \\[0.3em]
+Estabilização térmica & 3000~ms &
+\textbf{Tempo de espera em cada ponto antes de medir.} O filamento leva
+segundos para atingir o equilíbrio térmico; medir antes disso produz
+temperaturas erradas. \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+O número de pontos é determinado pelos três primeiros campos. Uma varredura de
+1,0~V a 10,0~V com passo 0,5~V produz 19 pontos; com 3~s de espera cada, a
+coleta leva cerca de um minuto.
+
+\subsection{Executando}
+
+\botao{Iniciar Experimento Físico} liga a saída da fonte e começa a varredura.
+A tela muda para a sub-aba \campo{2. Coleta na Bancada}, que mostra:
+
+\begin{itemize}[nosep]
+  \item uma \textbf{barra de progresso} com o ponto atual sobre o total;
+  \item três \textbf{gráficos ao vivo}: temperatura contra tensão, fotocorrente
+        contra tensão, e a linearização $\ln(I)$ vs $1/T$;
+  \item um \textbf{registro em tempo real}, à direita, com uma linha por ponto
+        medido, no formato \texttt{tensão | corrente | temperatura |
+        fotocorrente};
+  \item o nome do arquivo em que os dados estão sendo gravados.
+\end{itemize}
+
+\botao{Parar e Processar Experimento} interrompe a varredura, desliga a fonte
+com segurança e \textbf{ainda assim calcula} o resultado com os pontos já
+coletados --- desde que haja pelo menos três.
+
+\subsection{Onde ficam os dados}
+
+Cada execução cria um arquivo em \texttt{Software/data\_backup/}:
+
+\begin{quote}\ttfamily
+data\_backup/exp\_planck\_AAAAMMDD\_HHMMSS.csv
+\end{quote}
+
+O arquivo é escrito \textbf{ponto a ponto, durante a coleta}, não ao final.
+Se houver queda de energia ou falha de comunicação no meio do experimento, tudo
+o que já foi medido está salvo. As colunas são:
+
+\begin{center}
+\begin{tabular}{@{}ll@{}}
+\toprule
+\textbf{Coluna} & \textbf{Conteúdo} \\
+\midrule
+\texttt{Tensao\_Fonte\_V} & Tensão programada na fonte, em volts \\
+\texttt{Corrente\_Filamento\_A} & Corrente lida na fonte, em ampères \\
+\texttt{Resistencia\_Ohms} & $R = V/i$, em ohms \\
+\texttt{Temperatura\_K} & Temperatura calculada do filamento, em kelvin \\
+\texttt{Fotocorrente\_A} & Corrente do LED lida no multímetro, em ampères \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+% =============================================================
+\section{Lendo os resultados}
+\label{sec:resultados}
+
+Ao final, o software mostra três números:
+
+\begin{description}[style=nextline,leftmargin=0.6cm]
+  \item[$h$ experimental]
+    O valor obtido, em J$\cdot$s. O valor de referência (CODATA) é
+    $6{,}62607015 \times 10^{-34}$~J$\cdot$s.
+  \item[Erro relativo]
+    A diferença percentual entre o valor obtido e o de referência.
+  \item[$R^2$]
+    Quão bem os pontos se ajustam a uma reta na forma linearizada. Um $R^2$
+    próximo de 1 indica que a relação linear se sustentou; um $R^2$ baixo
+    indica que a regressão pegou pontos que não seguem o modelo.
+\end{description}
+
+\subsection{Por que a faixa de varredura importa tanto}
+\label{sec:faixa}
+
+Esta é a característica mais importante de operação do experimento, e vale
+entendê-la antes de interpretar qualquer resultado.
+
+A aproximação de Wien só descreve bem a fotocorrente quando o filamento está
+\textbf{quente}. Em temperaturas baixas, a radiação emitida no comprimento de
+onda do LED é ordens de grandeza menor que o \textbf{ruído de fundo do
+multímetro}. O que se lê nesses pontos não é sinal: é o piso do instrumento.
+
+Na prática, com o multímetro na faixa de 100~$\mu$A, o fundo é da ordem de
+alguns nanoampères. Uma varredura completa a partir de 0~V produz, portanto,
+dois regimes bem distintos:
+
+\begin{center}
+\begin{tabular}{@{}lll@{}}
+\toprule
+\textbf{Região} & \textbf{Fotocorrente típica} & \textbf{Vale como medida?} \\
+\midrule
+Abaixo de $\approx 1800$~K & unidades de nA & Não --- é o piso do multímetro \\
+Acima de $\approx 1800$~K & dezenas a centenas de nA & Sim \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+Incluir os pontos frios na regressão não apenas não ajuda: \textbf{estraga o
+resultado}, porque eles entram como se fossem medidas legítimas e puxam a
+reta. O sintoma característico é um $R^2$ baixo acompanhado de um $h$ muito
+distante do esperado.
+
+\begin{aviso}
+\textbf{Recomendação prática.} Você pode varrer a faixa inteira que quiser ---
+inclusive de 0 a 12~V --- para registrar o comportamento completo do filamento.
+Mas, ao avaliar o valor de $h$, confira o $R^2$: se ele estiver baixo, refaça a
+leitura considerando apenas a região quente. O CSV guarda todos os pontos, então
+nada se perde.
+\end{aviso}
+
+% =============================================================
+\section{Exportando o relatório PDF}
+
+Depois que uma coleta (simulada ou real) termina, o botão
+\botao{Exportar Relatório PDF} é habilitado. Ele abre primeiro uma janela de
+metadados:
+
+\begin{itemize}[nosep]
+  \item \campo{Autor / Pesquisador};
+  \item \campo{Local da Coleta};
+  \item \campo{Notas Adicionais} --- espaço livre para registrar anomalias no
+        equipamento, temperatura ambiente, condições da sala.
+\end{itemize}
+
+Em seguida, um seletor de arquivos pergunta onde salvar. O PDF gerado contém:
+
+\begin{enumerate}[nosep]
+  \item cabeçalho com pesquisador, local e data/hora do registro;
+  \item tabela com todos os parâmetros usados na coleta;
+  \item tabela de resultados ($h$ de referência, $h$ experimental, erro
+        relativo e $R^2$);
+  \item uma imagem dos gráficos, capturada da tela no momento da exportação;
+  \item as observações escritas na janela de metadados.
+\end{enumerate}
+
+% =============================================================
+\section{Aba Referências}
+
+Lista os quatro documentos em que o software se baseia: o artigo de Cavalcante
+\& Haag, os datasheets do multímetro e da fonte, e o manual do TekVISA.
+
+Para cada documento, a ficha traz a autoria, onde foi publicado, o
+identificador (DOI ou número de peça), a condição de acesso, e uma lista do que
+especificamente o software usa daquele documento --- quais equações, quais
+tabelas de exatidão.
+
+Três botões acompanham cada ficha:
+
+\begin{description}[style=nextline,leftmargin=0.6cm,nosep]
+  \item[\botao{Abrir cópia local}] abre o PDF guardado na pasta \texttt{Docs/}.
+  \item[\botao{Abrir documento oficial}] abre o link direto do documento no
+        site do editor ou do fabricante.
+  \item[\botao{Página do editor/fabricante}] abre a página que hospeda o
+        documento, útil para verificar se houve revisão.
+\end{description}
+
+% =============================================================
+\section{Solução de problemas}
+
+\begin{description}[style=nextline,leftmargin=0.6cm]
+
+  \item[A varredura não encontra a fonte]
+    Confirme que o cabo USB está conectado e que o driver VISA está instalado.
+    A fonte é identificada pelo código de fabricante Tektronix no endereço USB.
+
+  \item[A varredura não encontra o multímetro]
+    O endereço de rede do multímetro é procurado num endereço padrão. Se o
+    aparelho estiver em outro IP, digite o endereço completo diretamente na
+    caixa de seleção e clique em \botao{Verificar Ligações}.
+
+  \item[Aparece ``valide a ligação aos instrumentos primeiro'']
+    O experimento real exige que os dois instrumentos tenham sido validados com
+    sucesso ao menos uma vez. Vá à aba \aba{Hardware e Ligações} e use
+    \botao{Verificar Ligações}. Alternativamente, ligue o modo demonstração
+    (seção~\ref{sec:demo}) para rodar sem hardware.
+
+  \item[O multímetro fica travado em modo remoto]
+    Não deve mais acontecer: ao encerrar a comunicação, o software devolve o
+    controle ao painel frontal. Se ocorrer, o botão \textsc{local} do painel do
+    aparelho resolve.
+
+  \item[O resultado de $h$ saiu muito distante do esperado]
+    Verifique o $R^2$. Se estiver baixo, provavelmente a varredura incluiu
+    pontos frios demais --- veja a seção~\ref{sec:faixa}. Se o $R^2$ estiver
+    alto mas $h$ ainda estiver deslocado, o problema tende a ser de calibração:
+    o valor de $R_0$ e o comprimento de onda do LED são os parâmetros que mais
+    influenciam o resultado.
+
+  \item[Temperaturas absurdas em tensão baixa]
+    Em tensões próximas de zero, a resistência medida pode ficar abaixo de
+    $R_0$, e o modelo devolve temperaturas sem sentido físico (por exemplo,
+    77~K). Esses pontos devem ser desconsiderados; não indicam falha do
+    equipamento.
+
+  \item[A janela fechou durante a coleta]
+    O software interrompe a varredura e desliga a fonte com segurança antes de
+    encerrar. Os dados já coletados estão no CSV.
+
+\end{description}
+
+\vfill
+\begin{center}
+\rule{0.5\linewidth}{0.4pt}\\[0.5em]
+\small Documento companheiro: \textbf{Manual Técnico}, que descreve a
+arquitetura interna e o modelo físico.
+\end{center}
+
+\end{document}

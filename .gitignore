@@ -24,3 +24,12 @@ temp_bancada_graph.png
 .idea/
 Thumbs.db
 desktop.ini
+
+# Artefatos de compilacao LaTeX (o .tex e a fonte; o .pdf e versionado)
+*.aux
+*.log
+*.out
+*.toc
+*.synctex.gz
+*.fls
+*.fdb_latexmk

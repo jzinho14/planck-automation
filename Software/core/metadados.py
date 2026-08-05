@@ -56,6 +56,7 @@ def montar_abertura(params: dict, modo_demonstracao: bool,
         "instrumentos": {
             "fonte": pws_res,
             "multimetro": dmm_res,
+            "limite_corrente_a": params.get("limite_corrente"),
         },
         "perfis": {
             "led": params.get("perfil_led"),

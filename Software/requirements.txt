@@ -1,6 +1,11 @@
 # Interface Gráfica
 PySide6>=6.8.0
 
+# Componentes Fluent (Fase 5).
+# ATENCAO: a versao comunitaria e GPLv3 — ver PENDENCIAS.txt, item P6, antes
+# de distribuir o software a terceiros.
+PySide6-Fluent-Widgets>=1.11.0
+
 # Comunicação com Instrumentos
 PyVISA>=1.14.1
 

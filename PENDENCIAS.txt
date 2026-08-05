@@ -212,6 +212,49 @@ IMPACTO SE MUDAR
   nao a medida.
 
 ================================================================================
+P6 - [Fase 5] Licenca do software: QFluentWidgets e GPLv3
+================================================================================
+STATUS: ABERTO - decisao de distribuicao
+Origem: Fase 5, migracao de interface. CLAUDE.md secao 7.
+
+SITUACAO ATUAL
+  A interface usa PySide6-Fluent-Widgets 1.11.3, cuja versao comunitaria e
+  licenciada em GPLv3 (confirmado nos metadados do pacote instalado).
+
+  O projeto hoje NAO declara licenca nenhuma - nao ha arquivo LICENSE.
+
+POR QUE ISTO IMPORTA
+  A GPLv3 e "viral": um trabalho derivado que incorpore a biblioteca precisa
+  ser distribuido sob GPLv3 (ou compativel), com codigo-fonte disponivel.
+
+  Enquanto o software for usado apenas internamente - o laboratorio roda na
+  sua propria bancada, sem entregar copias a terceiros - a GPL nao obriga a
+  nada: nao ha distribuicao. A obrigacao nasce ao DISTRIBUIR o executavel,
+  que e exatamente o que a Fase 7 preve (PyInstaller + Inno Setup).
+
+  Observacao: o repositorio ja esta publico no GitHub. Publicar o codigo-fonte
+  e justamente o que a GPL pede, entao isso ajuda em vez de atrapalhar - mas
+  sem um arquivo LICENSE declarado a situacao fica ambigua.
+
+O QUE VERIFICAR
+  1. O software vai ser distribuido a terceiros (outros laboratorios, alunos,
+     outra instituicao)? Se sim, a GPLv3 se aplica ao conjunto.
+  2. Havendo distribuicao, o Senac / a instituicao aceita licenciar o
+     resultado em GPLv3? Para software didatico distribuido gratuitamente
+     costuma nao haver objecao, mas e decisao institucional, nao tecnica.
+  3. Em caso afirmativo, acrescentar um arquivo LICENSE com o texto da GPLv3 e
+     o cabecalho de copyright.
+
+ALTERNATIVAS SE A GPLv3 FOR UM PROBLEMA
+  - Licenca comercial do QFluentWidgets (existe uma versao Pro paga).
+  - Voltar para Qt Widgets puro com folha de estilo propria - foi como o
+    software funcionava ate a Fase 4, entao o caminho de volta existe e esta
+    no historico do Git.
+
+IMPACTO SE MUDAR
+  Nenhum no funcionamento. E questao juridica de distribuicao, nao tecnica.
+
+================================================================================
 P3 - [B4] Limite de corrente da fonte esta fixo no codigo
 ================================================================================
 STATUS: ABERTO - decisao de bancada

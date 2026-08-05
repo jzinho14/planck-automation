@@ -1109,6 +1109,87 @@ Para acrescentar um documento, basta acrescentar um item à lista: a aba se
 adapta sozinha.
 
 % =============================================================
+\section{A interface Fluent}
+\label{sec:fluent}
+
+\subsection{O que mudou e por quê}
+
+A interface anterior tinha quatro problemas concretos de navegação, todos
+resolvidos na migração:
+
+\begin{center}
+\begin{tabular}{@{}p{6.4cm}p{8.2cm}@{}}
+\toprule
+\textbf{Problema} & \textbf{Solução} \\
+\midrule
+Abas dentro de abas &
+Parâmetros ganharam página própria; as páginas de coleta só executam e mostram \\[0.4em]
+Estado do hardware invisível fora da primeira aba &
+Cabeçalho fixo com os dois instrumentos, acima da área de páginas \\[0.4em]
+Parâmetros repetidos entre Simulação e Bancada &
+Uma página só; as duas coletas leem o mesmo dicionário \\[0.4em]
+Sem retorno do que está acontecendo &
+Barra de status permanente com ponto, temperatura e arquivo em gravação \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Estrutura}
+
+\classe{JanelaPlanck} estende \classe{FluentWindow} e registra cinco
+sub-interfaces. Cada página é um \classe{QWidget} com \texttt{objectName}
+definido --- exigência do \texttt{addSubInterface}.
+
+As duas páginas de coleta partilham \classe{PaginaExecucaoBase}, que concentra
+gráficos, barra de progresso, registro em tempo real, cartão de resultado e
+exportação de PDF. As subclasses só definem como a coleta começa: a de
+Simulação instancia \classe{SimulationWorker}, a de Bancada verifica o modo,
+resolve os recursos VISA e instancia \classe{ExperimentWorker}.
+
+\begin{nota}
+\textbf{Os workers não mudaram.} \classe{SimulationWorker} e
+\classe{ExperimentWorker} são exatamente os mesmos das fases anteriores. Foi
+possível porque já se comunicavam só por sinais, sem conhecer a interface --- a
+separação de camadas pagou-se aqui.
+\end{nota}
+
+\subsection{Configuração que saiu do código}
+
+Dois valores que estavam fixos no código viraram campos persistidos:
+
+\begin{center}
+\begin{tabular}{@{}p{4.0cm}p{4.2cm}p{6.4cm}@{}}
+\toprule
+\textbf{Item} & \textbf{Antes} & \textbf{Agora} \\
+\midrule
+Limite de corrente & 2,0~A fixo, com comentário dizendo 1,5~A &
+Campo de 0,1 a 3,0~A, padrão 1,5~A, gravado nos metadados \\[0.4em]
+Endereço do multímetro & escrito no código &
+Campos de IP e porta; \texttt{endereco\_dmm()} monta a string VISA \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\subsection{Transição}
+
+A janela antiga continua funcional e é escolhida por variável de ambiente:
+
+\begin{quote}\ttfamily
+set PLANCK\_UI=classica \&\& python main.py
+\end{quote}
+
+Isso não é permanente. A janela antiga --- e com ela \arqv{ui/theme.py} e o
+painel de ligações original --- sai quando a nova tiver rodado um experimento
+de verdade com os instrumentos ligados.
+
+\begin{nota}
+\textbf{Licença.} A versão comunitária do QFluentWidgets é GPLv3. Enquanto o
+software rodar apenas internamente não há obrigação, porque não há
+distribuição; a obrigação nasce ao distribuir executáveis, que é o que a fase
+de empacotamento prevê. Ver \texttt{PENDENCIAS.txt}, item P6.
+\end{nota}
+
+% =============================================================
 \section{Aparência}
 
 \arqv{ui/theme.py} exporta uma única string QSS aplicada globalmente. A paleta é

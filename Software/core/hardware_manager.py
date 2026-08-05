@@ -12,9 +12,37 @@ ORGANIZACAO = "Senac"
 APLICACAO = "PlanckAutomation"
 CHAVE_MODO_DEMONSTRACAO = "Connection/DemoMode"
 
+# B5 — o endereço do multímetro deixa de ser constante no código.
+CHAVE_IP_DMM = "Connection/DMMIp"
+CHAVE_PORTA_DMM = "Connection/DMMPorta"
+IP_DMM_PADRAO = "192.168.1.107"
+PORTA_DMM_PADRAO = "3490"
+
+# B4 — o limite de corrente deixa de ser hardcoded. O padrão é o valor
+# conservador que o comentário do código antigo mencionava; o valor efetivo
+# para o filamento em uso é decisão de bancada (ver PENDENCIAS.txt, P3).
+CHAVE_LIMITE_CORRENTE = "Safety/LimiteCorrenteA"
+LIMITE_CORRENTE_PADRAO = 1.5
+
 
 def preferencias() -> QSettings:
     return QSettings(ORGANIZACAO, APLICACAO)
+
+
+def endereco_dmm() -> str:
+    """String de recurso VISA do multímetro, montada a partir das preferências."""
+    cfg = preferencias()
+    ip = cfg.value(CHAVE_IP_DMM, IP_DMM_PADRAO)
+    porta = cfg.value(CHAVE_PORTA_DMM, PORTA_DMM_PADRAO)
+    return f"TCPIP::{ip}::{porta}::SOCKET"
+
+
+def limite_corrente() -> float:
+    """Limite de corrente da fonte configurado pelo operador (A)."""
+    try:
+        return float(preferencias().value(CHAVE_LIMITE_CORRENTE, LIMITE_CORRENTE_PADRAO))
+    except (TypeError, ValueError):
+        return LIMITE_CORRENTE_PADRAO
 
 
 def modo_demonstracao_ativo() -> bool:
@@ -148,11 +176,11 @@ class ScannerThread(QThread):
                 pws_items.append((f"PWS4323 (USB)", res))
                 break  # Pega apenas o primeiro PWS encontrado
 
-        # 2. Fallback manual para DMM via SOCKET
-        DMM_IP = "192.168.1.107"
-        DMM_PORT = "3490"
-        dmm_res = f"TCPIP::{DMM_IP}::{DMM_PORT}::SOCKET"
-        
+        # 2. Fallback manual para DMM via SOCKET. O endereço vem das
+        #    preferências, editável na página de Conexão (B5).
+        dmm_res = endereco_dmm()
+        rotulo_dmm = dmm_res.split("::")[1] + ":" + dmm_res.split("::")[2]
+
         try:
             # Testa rápido se o DMM está na rede antes de listar
             rm_test = pyvisa.ResourceManager('@ivi')
@@ -161,7 +189,7 @@ class ScannerThread(QThread):
             dmm_test.read_termination = '\n'
             dmm_test.query('*IDN?')
             dmm_test.close()
-            dmm_items.append((f"DMM4050 ({DMM_IP}:{DMM_PORT})", dmm_res))
+            dmm_items.append((f"DMM4050 ({rotulo_dmm})", dmm_res))
         except Exception:
             # Se falhar, ainda adiciona para o usuário tentar conectar/corrigir
             dmm_items.append((f"DMM4050 (Desconectado/Manual)", dmm_res))

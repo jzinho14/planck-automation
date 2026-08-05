@@ -62,7 +62,7 @@ ao final → h, erro relativo e R².
 
 ```
 Software/
-├── main.py                      # QApplication + Fusion + tema QSS escuro
+├── main.py                      # ponto de entrada; PLANCK_UI escolhe a janela
 ├── content/
 │   ├── referencias.py           # dataclass Referencia + lista REFERENCIAS (dado, não código)
 │   └── perfis.py                # 4 famílias de perfis + carga tolerante a falha
@@ -75,7 +75,11 @@ Software/
 │   ├── mock_hardware.py         # BancadaSimulada + Mock*_Driver (mesma interface)
 │   └── metadados.py             # JSON irmão de cada CSV (P5 — rastreabilidade)
 ├── ui/
-│   ├── main_window.py           # QTabWidget com 4 abas
+│   ├── janela_fluent.py         # ← JANELA PADRÃO: FluentWindow, 5 páginas,
+│   │                            #   cabeçalho de estado fixo + barra de status
+│   ├── paginas/                 # pagina_conexao, pagina_execucao (base),
+│   │                            #   paginas_coleta (Simulação/Bancada)
+│   ├── main_window.py           # janela CLÁSSICA (PLANCK_UI=classica)
 │   ├── theme.py                 # DARK_THEME (string QSS)
 │   ├── components/
 │   │   ├── connection_panel.py  # Scan/validação VISA, persiste em QSettings("Senac","PlanckAutomation")
@@ -101,7 +105,8 @@ Tests/test_mock_hardware.py      # 17 checagens da bancada simulada (roda sem ha
 Tests/test_math_models.py        # 25 checagens do modelo fisico (A2, A5, regressao)
 Tests/test_error_models.py       # 40 checagens da teoria de erros (Tipo A/B, ajuste, propagacao)
 Tests/test_perfis_metadados.py   # 40 checagens de perfis e metadados por coleta
-Tests/test_interface.py          # ponta a ponta pela UI real, sem hardware
+Tests/test_interface.py          # ponta a ponta pela UI classica, sem hardware
+Tests/test_interface_fluent.py   # ponta a ponta pela UI Fluent, sem hardware
 Tests/calibrar_mock_com_dados_reais.py  # procedencia das constantes do mock (nao e teste)
 Markdowns/project_description.md # Especificação original (as abas Análise e Comparação ainda faltam)
 Docs/                            # Artigo de referência + datasheets Tektronix
@@ -110,8 +115,9 @@ Docs/                            # Artigo de referência + datasheets Tektronix
 **Acoplamentos importantes:**
 - `tab_experiment.start_experiment()` lê as strings VISA de `QSettings` gravadas pelo
   `ConnectionPanel` (acoplamento por side-channel, não por sinal — candidato a refatoração).
-- `ExperimentWorker` instancia os drivers direto na thread (correto para VISA), mas os
-  parâmetros de segurança (limite de corrente 2.0 A) estão hardcoded.
+- `ExperimentWorker` instancia os drivers direto na thread (correto para VISA). O
+  limite de corrente vem de `params['limite_corrente']`, configurado na página de
+  Conexão (B4 corrigido na Fase 5).
 - A especificação original previa Aba de "Reconstrução/Comparação" e Aba de
   "Processamento Analítico passo a passo" — **nunca foram implementadas**.
 
@@ -414,9 +420,21 @@ profiles/
      com perfis, R0 medido *e* corrigido, varredura, modo e o resultado com
      incerteza. Gravado na abertura E no encerramento.
    - Botão "salvar varredura atual como perfil" no painel.
-6. **Fase 5 — Nova interface (§7):** migrar para `FluentWindow` + QFluentWidgets,
-   uma página por vez (começar pela Conexão, que é a mais simples), mantendo as
-   telas antigas funcionais durante a transição.
+6. ~~**Fase 5 — Nova interface**~~ ✅ **CONCLUÍDA (falta validar na bancada real).**
+   - `ui/janela_fluent.py`: `FluentWindow` com 5 páginas — Conexão, Parâmetros,
+     Simulação, Bancada, Referências.
+   - **Fim das abas dentro de abas**: parâmetros têm página própria; as páginas
+     de coleta só executam e mostram.
+   - **Cabeçalho fixo** com o estado dos dois instrumentos, visível de qualquer
+     página, + barra de status com ponto atual, temperatura e arquivo em gravação.
+   - **B4 morto:** limite de corrente é `DoubleSpinBox` (0,1–3,0 A), persistido e
+     gravado nos metadados. Padrão passou de 2,0 A (hardcoded) para 1,5 A.
+   - **B5 morto:** IP e porta do DMM são campos; `endereco_dmm()` monta a string.
+   - Parada de emergência sempre visível na página de Bancada.
+   - `InfoBar` para sucesso/erro de ligação e fim de coleta.
+   - **A janela clássica continua funcional:** `set PLANCK_UI=classica`. Só sai
+     depois que a nova rodar um experimento real com os instrumentos ligados.
+   - **⚠ Licença:** QFluentWidgets comunitário é GPLv3 — ver PENDENCIAS.txt, P6.
 7. **Fase 6 — Página Análise:** multi-CSV, comparação real×simulação, pipeline
    passo a passo, Stefan-Boltzmann (A10), relatório PDF ampliado.
 8. **Fase 7 — Simulação física melhor (A9)** e empacotamento: PyInstaller

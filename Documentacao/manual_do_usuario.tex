@@ -159,6 +159,26 @@ instrumento), dois botões e um interruptor de modo.
 
 \subsection{Encontrando os instrumentos}
 
+\subsection{Limite de corrente da fonte}
+
+O campo \campo{Limite de corrente da fonte} define quanta corrente a fonte
+pode entregar ao filamento. É uma proteção física: ultrapassado o limite, a
+fonte segura a corrente e derruba a tensão.
+
+\begin{aviso}
+\textbf{Confirme este valor para o seu filamento antes da primeira coleta.} O
+padrão é 1,5~A, conservador. O valor efetivamente usado fica gravado nos
+metadados de cada coleta.
+\end{aviso}
+
+\subsection{Endereço do multímetro}
+
+Os campos de \campo{IP} e \campo{porta} definem onde o software procura o
+multímetro na rede. Se o aparelho mudar de endereço, corrija aqui e procure de
+novo --- o valor fica guardado para as próximas sessões.
+
+\subsection{Botões}
+
 \begin{description}[style=nextline,leftmargin=0.6cm]
   \item[\botao{Procurar Instrumentos}]
     Varre o barramento VISA à procura da fonte (por USB) e testa o endereço de

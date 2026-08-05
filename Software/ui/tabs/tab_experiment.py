@@ -18,7 +18,7 @@ from content.perfis import especificacoes_de_instrumentos
 from ui.components.painel_parametros import PainelParametros
 from utils.math_models import (calculate_temperature, selecionar_pontos_validos, H_REF)
 from utils.error_models import analisar_experimento, incerteza_tipo_a
-from core.hardware_manager import (obter_drivers, preferencias,
+from core.hardware_manager import (obter_drivers, preferencias, limite_corrente,
                                    CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
 import pyvisa
@@ -35,6 +35,8 @@ class ExperimentWorker(QThread):
     
     def __init__(self, params, dmm_res, pws_res, modo_demonstracao: bool = False):
         super().__init__()
+        # B4: o limite de corrente é configuração de bancada, não de física.
+        params['limite_corrente'] = limite_corrente()
         self.params = params
         self.dmm_res = dmm_res
         self.pws_res = pws_res
@@ -63,7 +65,8 @@ class ExperimentWorker(QThread):
             dmm = ClasseMultimetro(rm, self.dmm_res)
 
             # Configurações de Segurança e Precisão
-            pws.configure_safety_limits(max_current=2.0) # Limite de 1.5A para o filamento
+            # B4: o limite vem da página de Conexão, não mais fixo no código.
+            pws.configure_safety_limits(max_current=self.params['limite_corrente'])
             dmm.configure_dc_current(nplc=10.0) # Alta filtragem de ruído (60Hz)
             
             # Inicializar o ficheiro CSV com cabeçalho. As cinco primeiras

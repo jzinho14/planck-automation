@@ -30,6 +30,8 @@ class PainelParametros(QWidget):
     `modo` controla o que aparece:
       "bancada"   — inclui resistência de cabos e leituras por ponto
       "simulacao" — inclui fator de ruído, sem os campos de hardware
+      "completo"  — inclui tudo; é o modo da página única de Parâmetros, onde
+                    Simulação e Bancada bebem da MESMA fonte de configuração
     """
 
     parametros_alterados = Signal()
@@ -113,22 +115,25 @@ class PainelParametros(QWidget):
         form_fisica.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
         form_fisica.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
 
-        if self.modo == "bancada":
+        if self.modo in ("bancada", "completo"):
             self.input_r_cabos = QLineEdit("0.0")
             self.input_r_cabos.setToolTip(
                 "Resistência dos cabos da medição a 2 fios, descontada de R.\n"
                 "Meça curto-circuitando as pontas; deixe 0 se não souber.")
             form_fisica.addRow("Resistência dos cabos (Ω):", self.input_r_cabos)
-        else:
+        if self.modo in ("simulacao", "completo"):
             self.input_noise = QLineEdit("0.05")
-            form_fisica.addRow("Fator de Ruído (0 a 1):", self.input_noise)
+            self.input_noise.setToolTip(
+                "Amplitude do ruído somado à fotocorrente simulada, como\n"
+                "fração do sinal. Só afeta a página de Simulação.")
+            form_fisica.addRow("Fator de Ruído — simulação (0 a 1):", self.input_noise)
 
         grupo_fisica.setLayout(form_fisica)
         layout.addWidget(grupo_fisica)
 
         # --- Varredura ---
-        titulo = ("Varredura SCPI" if self.modo == "bancada"
-                  else "Varredura (Simulação)")
+        titulo = ("Varredura (Simulação)" if self.modo == "simulacao"
+                  else "Varredura")
         grupo_varredura = QGroupBox(titulo)
         form_varredura = QFormLayout()
 
@@ -141,14 +146,14 @@ class PainelParametros(QWidget):
             "Só entram na regressão os pontos acima desta temperatura.\n"
             "Não afeta a coleta: tudo continua sendo medido e gravado.")
 
-        rotulo_espera = ("Estabilização Térmica (ms):" if self.modo == "bancada"
-                         else "Intervalo de Captura (ms):")
+        rotulo_espera = ("Intervalo de Captura (ms):" if self.modo == "simulacao"
+                         else "Estabilização Térmica (ms):")
         form_varredura.addRow("Tensão Inicial (V):", self.input_v_start)
         form_varredura.addRow("Tensão Final (V):", self.input_v_end)
         form_varredura.addRow("Passo de Tensão (V):", self.input_v_step)
         form_varredura.addRow(rotulo_espera, self.input_delay)
 
-        if self.modo == "bancada":
+        if self.modo in ("bancada", "completo"):
             self.input_n_leituras = QLineEdit("1")
             self.input_n_leituras.setToolTip(
                 "Leituras da fotocorrente por ponto. Com N > 1 o software\n"
@@ -294,12 +299,13 @@ class PainelParametros(QWidget):
             'perfil_varredura': self.combo_varredura.currentData().nome,
         }
 
-        if self.modo == "bancada":
-            parametros['r_cabos'] = float(self.input_r_cabos.text())
-            parametros['n_leituras'] = int(float(self.input_n_leituras.text()))
-        else:
-            parametros['noise'] = float(self.input_noise.text())
-            parametros['r_cabos'] = 0.0
-            parametros['n_leituras'] = 1
+        # Cada campo ausente ganha um padrão inerte, para que qualquer página
+        # possa consumir o mesmo dicionário sem precisar saber do modo.
+        parametros['r_cabos'] = (float(self.input_r_cabos.text())
+                                 if hasattr(self, "input_r_cabos") else 0.0)
+        parametros['n_leituras'] = (int(float(self.input_n_leituras.text()))
+                                    if hasattr(self, "input_n_leituras") else 1)
+        parametros['noise'] = (float(self.input_noise.text())
+                               if hasattr(self, "input_noise") else 0.05)
 
         return parametros

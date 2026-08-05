@@ -158,9 +158,27 @@ class HardwareManager(QObject):
         self._validators = []
 
     def scan_resources(self):
+        # Um scan de cada vez. Reatribuir self._scanner com uma varredura ainda
+        # em curso largava a última referência à QThread anterior, e destruir um
+        # QThread em execução é o mesmo problema tratado em B8 — aqui agravado
+        # porque o ScannerThread pode ficar segundos preso no open_resource do
+        # DMM. Enquanto uma varredura corre, novos cliques são ignorados.
+        if self._scanner is not None and self._scanner.isRunning():
+            return
+
         self._scanner = ScannerThread()
         self._scanner.resources_found.connect(self.resources_found.emit)
+        self._scanner.finished.connect(self._discard_scanner)
         self._scanner.start()
+
+    def _discard_scanner(self):
+        """Solta a referência do ScannerThread terminado, liberando novo scan."""
+        scanner = self.sender()
+        if scanner is None:
+            return
+        scanner.wait()
+        if self._scanner is scanner:
+            self._scanner = None
 
     def validate_connection(self, device_id: str, resource_string: str):
         validator = ValidatorThread(device_id, resource_string)

@@ -40,12 +40,6 @@ class MainWindow(QMainWindow):
         self.main_tabs.addTab(self.tab_setup, "🔌 Hardware e Ligações")
         self.main_tabs.addTab(self.tab_simulation, "💻 Simulação")
         self.main_tabs.addTab(self.tab_experiment, "🔬 Experimento Real")
-        # Em breve colocaremos aqui o TabExperiment(self.hw_manager)
-
-        # Adicionar as abas ao ecrã principal
-        self.main_tabs.addTab(self.tab_setup, "🔌 Hardware e Ligações")
-        self.main_tabs.addTab(self.tab_simulation, "💻 Simulação")
-        self.main_tabs.addTab(self.tab_experiment, "🔬 Experimento Real")
 
         self.setCentralWidget(self.main_tabs)
 

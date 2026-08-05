@@ -45,16 +45,30 @@ class SimulationWorker(QThread):
         )
         
         # 3. Emitir ponto a ponto para simular a varredura temporal do equipamento
+        emitidos = 0
         for i in range(len(voltages)):
             if not self.is_running:
                 break
-            
+
             self.new_data_point.emit(V[i], I_fil[i], T[i], I_led[i])
+            emitidos += 1
             time.sleep(delay) # Simula o tempo de aquisição do DMM/PWS
-            
+
         # 4. Calcular a Constante de Planck com os dados gerados, pela mesma
         #    cadeia de incertezas que a bancada real usa.
-        if self.is_running and len(voltages) > 2:
+        #
+        # Duas correções aqui, ambas de comportamento ao PARAR no meio:
+        #
+        # - O resultado é emitido mesmo quando a coleta foi interrompida. Antes
+        #   a condição exigia `is_running`, então parar no meio não emitia sinal
+        #   nenhum: a interface ficava travada em "encerrando…" para sempre,
+        #   esperando um sinal que nunca vinha.
+        # - Só os pontos EFETIVAMENTE emitidos entram na conta. Antes analisava
+        #   os vetores inteiros, incluindo pontos que a simulação nunca chegou
+        #   a "medir" — um resultado sobre dados que o operador não viu.
+        V, I_fil, I_led = V[:emitidos], I_fil[:emitidos], I_led[:emitidos]
+
+        if emitidos > 2:
             try:
                 resultado = analisar_experimento(
                     V, I_fil, I_led,

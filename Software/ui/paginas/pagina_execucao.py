@@ -46,6 +46,7 @@ class PaginaExecucaoBase(QWidget):
         self.params = {}
         self.last_results = {}
         self.data_v, self.data_t, self.data_i_led = [], [], []
+        self._teve_resultado = False
         self._montar()
 
     # -- construção ----------------------------------------------------------
@@ -252,6 +253,7 @@ class PaginaExecucaoBase(QWidget):
         self.barra.setValue(0)
         self.btn_iniciar.setEnabled(False)
         self.btn_parar.setEnabled(True)
+        self._teve_resultado = False
         self.params = params
         return params
 
@@ -288,6 +290,7 @@ class PaginaExecucaoBase(QWidget):
             f"{temperatura:.0f} K")
 
     def mostrar_resultado(self, resultado):
+        self._teve_resultado = True
         self.btn_iniciar.setEnabled(True)
         self.btn_parar.setEnabled(False)
         self.btn_pdf.setEnabled(True)
@@ -344,6 +347,38 @@ class PaginaExecucaoBase(QWidget):
         InfoBar.error("Erro na coleta", mensagem[:180], parent=self.window(),
                       position=InfoBarPosition.TOP, duration=10000)
         self.janela.atualizar_status("Erro na coleta")
+
+    def acompanhar(self, worker):
+        """
+        Registra o worker e liga a rede de segurança da interface.
+
+        `finished` do QThread dispara SEMPRE que a thread termina — com
+        resultado, com erro ou interrompida. Sem isso, um caminho que não emita
+        o sinal de resultado deixa os botões travados e a página presa em
+        "encerrando…", que foi exatamente o que aconteceu ao parar uma
+        simulação no meio.
+        """
+        self.worker = worker
+        worker.finished.connect(self._ao_encerrar_thread)
+
+    def _ao_encerrar_thread(self):
+        self.btn_iniciar.setEnabled(True)
+        self.btn_parar.setEnabled(False)
+        interrompida = self.lbl_andamento.text() == "encerrando…"
+        if interrompida:
+            self.lbl_andamento.setText(
+                f"interrompida em {len(self.data_v)} ponto(s)")
+
+        # Parar cedo demais deixa poucos pontos na região de Wien, e a análise
+        # não roda. Sem este aviso o operador ficaria olhando um painel de
+        # resultado vazio sem saber por quê.
+        if interrompida and not self._teve_resultado:
+            InfoBar.info(
+                "Coleta interrompida",
+                f"{len(self.data_v)} ponto(s) coletados, mas não há pontos "
+                f"suficientes acima de {self.params.get('t_minima', 0):.0f} K "
+                "para calcular h. Os dados coletados seguem no gráfico.",
+                parent=self.window(), position=InfoBarPosition.TOP, duration=8000)
 
     def parar(self):
         if self.worker and self.worker.isRunning():

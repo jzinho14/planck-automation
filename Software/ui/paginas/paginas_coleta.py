@@ -31,7 +31,7 @@ class PaginaSimulacao(PaginaExecucaoBase):
                           position=InfoBarPosition.TOP, duration=8000)
             return
 
-        self.worker = SimulationWorker(params)
+        self.acompanhar(SimulationWorker(params))
         self.worker.new_data_point.connect(self.novo_ponto)
         self.worker.finished_sim.connect(self.mostrar_resultado)
         self.worker.start()
@@ -86,8 +86,11 @@ class PaginaBancada(PaginaExecucaoBase):
         for indicador in (self.ind_tensao, self.ind_corrente, self.ind_potencia):
             indicador.setFixedWidth(110)
 
+        # Sem ícone de propósito: o ícone do QFluentWidgets é posicionado pelo
+        # padding interno dele, e a folha de estilo própria deste botão
+        # (necessária para o vermelho) desloca esse cálculo — o ícone acabava
+        # em cima do texto. Botão vermelho com rótulo em caixa alta já comunica.
         self.btn_emergencia = PushButton("PARAR TUDO")
-        self.btn_emergencia.setIcon(FluentIcon.CANCEL)
         self.btn_emergencia.setMinimumHeight(38)
         self.btn_emergencia.setMinimumWidth(150)
         self.btn_emergencia.setToolTip(
@@ -174,7 +177,7 @@ class PaginaBancada(PaginaExecucaoBase):
         params['limite_corrente'] = limite_corrente()
         self.params = params
 
-        self.worker = ExperimentWorker(params, dmm_res, pws_res, demo)
+        self.acompanhar(ExperimentWorker(params, dmm_res, pws_res, demo))
         self.worker.new_data_point.connect(self.novo_ponto)
         self.worker.finished_exp.connect(self.mostrar_resultado)
         self.worker.error_occurred.connect(self.mostrar_erro)

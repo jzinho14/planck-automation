@@ -2,8 +2,7 @@
 """As duas páginas concretas de coleta: Simulação e Bancada (Fase 5)."""
 from PySide6.QtWidgets import QWidget, QHBoxLayout
 from qfluentwidgets import (CardWidget, StrongBodyLabel, CaptionLabel,
-                            PushButton, FluentIcon, InfoBar, InfoBarPosition,
-                            DoubleSpinBox)
+                            PushButton, FluentIcon, InfoBar, InfoBarPosition)
 
 from core.hardware_manager import (preferencias, limite_corrente,
                                    CHAVE_MODO_DEMONSTRACAO, CHAVE_LIMITE_CORRENTE,
@@ -18,6 +17,7 @@ class PaginaSimulacao(PaginaExecucaoBase):
     """Coleta sintética — não toca em hardware nem grava CSV."""
 
     nome_objeto = "pagina_simulacao"
+    titulo_visao = "Simulação"
     texto_iniciar = "Iniciar coleta simulada"
     texto_parar = "Parar"
 
@@ -42,6 +42,7 @@ class PaginaBancada(PaginaExecucaoBase):
     """Coleta real, com os cuidados de segurança sempre visíveis."""
 
     nome_objeto = "pagina_bancada"
+    titulo_visao = "Bancada"
     texto_iniciar = "Iniciar experimento físico"
     texto_parar = "PARAR e processar"
 
@@ -65,18 +66,13 @@ class PaginaBancada(PaginaExecucaoBase):
 
         self.lbl_seguranca = StrongBodyLabel("Verifique as ligações antes de iniciar")
 
-        self.spin_limite = DoubleSpinBox()
-        self.spin_limite.setRange(0.1, 3.0)
-        self.spin_limite.setSingleStep(0.1)
-        self.spin_limite.setDecimals(2)
-        self.spin_limite.setSuffix(" A")
-        self.spin_limite.setFixedWidth(130)
-        self.spin_limite.setToolTip(
-            "Limite de corrente da fonte — proteção do filamento.\n"
-            "A lâmpada em uso opera até 24 W; a 12 V isso dá 2,0 A.\n"
-            "O valor fica gravado nos metadados de cada coleta.")
-        self.spin_limite.valueChanged.connect(
-            lambda v: preferencias().setValue(CHAVE_LIMITE_CORRENTE, v))
+        # Só LEITURA: o limite é configuração, e configuração mora em
+        # Parâmetros › Bancada. Aqui ele aparece para conferência antes de
+        # iniciar, não para ser mexido no calor do momento.
+        self.lbl_limite = CaptionLabel("")
+        self.lbl_limite.setToolTip(
+            "Limite de corrente em vigor. Para alterar, vá em "
+            "Parâmetros › Bancada.")
 
         # Leitura ao vivo do ponto de operação.
         self.ind_tensao = Indicador("tensão", "—")
@@ -104,8 +100,7 @@ class PaginaBancada(PaginaExecucaoBase):
         self.btn_emergencia.clicked.connect(self.parada_de_emergencia)
 
         linha.addWidget(self.lbl_seguranca)
-        linha.addWidget(CaptionLabel("limite:"))
-        linha.addWidget(self.spin_limite)
+        linha.addWidget(self.lbl_limite)
         linha.addStretch()
         linha.addWidget(self.ind_tensao)
         linha.addWidget(self.ind_corrente)
@@ -122,9 +117,7 @@ class PaginaBancada(PaginaExecucaoBase):
         else:
             self.lbl_seguranca.setText("🔴  Bancada real — o filamento vai aquecer")
 
-        self.spin_limite.blockSignals(True)
-        self.spin_limite.setValue(limite_corrente())
-        self.spin_limite.blockSignals(False)
+        self.lbl_limite.setText(f"limite de corrente: {limite_corrente():.2f} A")
 
     def novo_ponto(self, tensao, corrente, temperatura, fotocorrente):
         """Além de plotar, atualiza a leitura ao vivo do ponto de operação."""
@@ -173,8 +166,9 @@ class PaginaBancada(PaginaExecucaoBase):
                           position=InfoBarPosition.TOP, duration=8000)
             return
 
-        # B4: o limite configurado na página de Conexão chega ao worker.
-        params['limite_corrente'] = limite_corrente()
+        # B4: o limite vem de Parâmetros › Bancada, junto com o resto da
+        # configuração. Se por algum motivo não vier, cai na preferência salva.
+        params.setdefault('limite_corrente', limite_corrente())
         self.params = params
 
         self.acompanhar(ExperimentWorker(params, dmm_res, pws_res, demo))

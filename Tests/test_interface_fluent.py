@@ -120,22 +120,60 @@ checa(janela.barra_status.text() != "", "barra de status permanente",
 print("\n3. B4 — limite de corrente configurável")
 
 conexao = janela.pagina_conexao
-checa(not hasattr(conexao, "spin_limite"),
-      "o limite saiu da página de Conexão")
-
 bancada_pg = janela.pagina_bancada
-checa(hasattr(bancada_pg, "spin_limite"),
-      "e mora na faixa de segurança da Bancada, onde se aperta iniciar")
-bancada_pg.spin_limite.setValue(1.80)
+painel_cfg = janela.pagina_parametros.painel
+
+checa(not hasattr(conexao, "spin_limite"),
+      "o limite não está na página de Conexão")
+checa(not hasattr(bancada_pg, "spin_limite"),
+      "nem é editável na página de Bancada")
+checa(hasattr(painel_cfg, "input_limite"),
+      "ele mora em Parâmetros › Bancada — configuração num lugar só")
+
+painel_cfg.input_limite.setText("1.8")
+painel_cfg._gravar_limite()
 checa(abs(limite_corrente() - 1.80) < 1e-9,
-      "mudar o campo grava nas preferências", f"{limite_corrente():.2f} A")
-checa(bancada_pg.spin_limite.minimum() >= 0.1
-      and bancada_pg.spin_limite.maximum() <= 3.0,
-      "com faixa limitada ao que a fonte entrega",
-      f"{bancada_pg.spin_limite.minimum()}–{bancada_pg.spin_limite.maximum()} A")
+      "editar lá grava nas preferências", f"{limite_corrente():.2f} A")
+checa(painel_cfg.coletar()["limite_corrente"] == 1.8,
+      "e viaja com os demais parâmetros até o worker")
+
+bancada_pg.atualizar_faixa()
+checa("1.80" in bancada_pg.lbl_limite.text(),
+      "a Bancada apenas EXIBE o valor em vigor, para conferência",
+      bancada_pg.lbl_limite.text())
 checa(all(hasattr(bancada_pg, n)
           for n in ("ind_tensao", "ind_corrente", "ind_potencia")),
-      "e a faixa mostra tensão, corrente e potência ao vivo")
+      "e mostra tensão, corrente e potência ao vivo")
+
+print("\n3b. Configuração em seções, com os catálogos junto dos campos")
+
+checa(painel_cfg.secoes.count() == 5,
+      "cinco seções de configuração", f"{painel_cfg.secoes.count()}")
+checa(painel_cfg.combo_filamento.parent() is painel_cfg.secoes.widget(0),
+      "o catálogo de filamento fica DENTRO da seção Filamento")
+checa(painel_cfg.combo_led.parent() is painel_cfg.secoes.widget(1),
+      "o de LED, dentro da seção Sensor")
+checa(painel_cfg.combo_varredura.parent() is painel_cfg.secoes.widget(2),
+      "o de varredura, dentro da seção Varredura")
+
+print("\n3c. Gráficos: um por vez, com visão completa opcional")
+
+checa(bancada_pg.pilha_graficos.count() == 3,
+      "três gráficos empilhados, um visível por vez")
+bancada_pg.seletor_grafico.setCurrentItem("linear")
+app.processEvents()
+checa(bancada_pg.pilha_graficos.currentIndex() == 2,
+      "o seletor troca o gráfico exibido")
+bancada_pg.seletor_grafico.setCurrentItem("temp")
+
+bancada_pg.abrir_visao_completa()
+app.processEvents()
+checa(bancada_pg.visao_completa is not None
+      and bancada_pg.visao_completa.isVisible(),
+      "o botão 'Ver tudo' abre a janela com os três gráficos")
+checa(len(bancada_pg.visao_completa.plots) == 3,
+      "e ela traz os três, empilhados")
+bancada_pg.visao_completa.close()
 
 print("\n4. B5 — endereço do multímetro configurável")
 
@@ -160,9 +198,9 @@ janela.pagina_bancada.atualizar_faixa()
 checa("emonstração" in janela.pagina_bancada.lbl_seguranca.text(),
       "a faixa de segurança da Bancada também",
       janela.pagina_bancada.lbl_seguranca.text())
-checa(abs(janela.pagina_bancada.spin_limite.value() - 1.80) < 1e-9,
+checa("1.80" in janela.pagina_bancada.lbl_limite.text(),
       "e o limite em vigor aparece na faixa",
-      f"{janela.pagina_bancada.spin_limite.value():.2f} A")
+      janela.pagina_bancada.lbl_limite.text())
 
 print("\n6. Parâmetros: uma fonte só para as duas coletas")
 

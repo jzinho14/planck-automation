@@ -112,12 +112,11 @@ class PaginaAnalise(QWidget):
         vertical.setContentsMargins(12, 12, 12, 12)
 
         self.seletor = SegmentedWidget()
-        self.seletor.addItem("bruto", "Fotocorrente × Tensão",
-                             lambda: self.desenhar("bruto"))
-        self.seletor.addItem("linear", "ln(I) × 1/T",
-                             lambda: self.desenhar("linear"))
-        self.seletor.addItem("stefan", "log(P) × log(T)",
-                             lambda: self.desenhar("stefan"))
+        for chave, titulo in (("bruto", "Fotocorrente × Tensão"),
+                              ("linear", "ln(I) × 1/T"),
+                              ("stefan", "log(P) × log(T)")):
+            self.seletor.addItem(chave, titulo)
+        self.seletor.currentItemChanged.connect(self.desenhar)
         self.seletor.setCurrentItem("bruto")
 
         pg.setConfigOption('background', '#202020')

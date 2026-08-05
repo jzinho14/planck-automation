@@ -15,13 +15,14 @@ import os
 import numpy as np
 import pyqtgraph as pg
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
-                               QMessageBox, QTextEdit, QFrame)
+                               QMessageBox, QTextEdit, QFrame, QStackedWidget)
 from PySide6.QtCore import Qt
 
 from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, TitleLabel,
                             StrongBodyLabel, CaptionLabel, PushButton,
                             PrimaryPushButton, ProgressBar, InfoBar,
-                            InfoBarPosition, FluentIcon, ScrollArea)
+                            InfoBarPosition, FluentIcon, ScrollArea,
+                            SegmentedWidget)
 
 from utils.math_models import selecionar_pontos_validos
 from ui.components.indicadores import (Indicador, SeloVeredicto, BarraOrcamento,
@@ -31,10 +32,92 @@ from ui.components.export_dialog import ExportDialog
 from utils.pdf_exporter import generate_planck_report
 
 
+class JanelaGraficos(QWidget):
+    """
+    Janela separada com os três gráficos e o registro, empilhados.
+
+    Existe para quem quer acompanhar tudo ao mesmo tempo — num segundo monitor,
+    por exemplo — sem que a página principal precise espremer três gráficos
+    lado a lado. Ela não recalcula nada: apenas espelha os dados da página.
+    """
+
+    def __init__(self, titulo: str, parent=None):
+        super().__init__(parent)
+        self.setWindowFlag(Qt.Window)
+        self.setWindowTitle(f"{titulo} — visão completa")
+        self.resize(1000, 900)
+
+        layout = QVBoxLayout(self)
+        area = ScrollArea()
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.NoFrame)
+
+        conteudo = QWidget()
+        coluna = QVBoxLayout(conteudo)
+        coluna.setSpacing(10)
+
+        self.plots = {}
+        for chave, titulo_grafico, eixo_y, eixo_x in (
+            ("temp", "Temperatura do filamento", "T (K)", "Tensão (V)"),
+            ("bruto", "Fotocorrente do LED", "I (A)", "Tensão (V)"),
+            ("linear", "Linearização ln(I) × 1/T", "ln(I)", "1/T (K⁻¹)"),
+        ):
+            grafico = pg.PlotWidget(title=titulo_grafico)
+            grafico.setLabel('left', eixo_y)
+            grafico.setLabel('bottom', eixo_x)
+            grafico.showGrid(x=True, y=True, alpha=0.15)
+            grafico.setMinimumHeight(260)
+            self.plots[chave] = grafico
+            coluna.addWidget(grafico)
+
+        self.itens = {
+            "temp": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
+                                       brush=pg.mkBrush(255, 165, 0, 210)),
+            "bruto": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
+                                        brush=pg.mkBrush(0, 150, 255, 210)),
+            "fora": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
+                                       brush=pg.mkBrush(130, 130, 130, 150)),
+            "usados": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
+                                         brush=pg.mkBrush(171, 71, 188, 220)),
+            "reta": pg.PlotDataItem(pen=pg.mkPen('w', width=2, style=Qt.DashLine)),
+        }
+        self.plots["temp"].addItem(self.itens["temp"])
+        self.plots["bruto"].addItem(self.itens["bruto"])
+        for chave in ("fora", "usados", "reta"):
+            self.plots["linear"].addItem(self.itens[chave])
+
+        coluna.addWidget(CaptionLabel("Registro da coleta"))
+        self.registro = QTextEdit()
+        self.registro.setReadOnly(True)
+        self.registro.setMinimumHeight(220)
+        self.registro.setStyleSheet(estilo_terminal())
+        coluna.addWidget(self.registro)
+
+        area.setWidget(conteudo)
+        layout.addWidget(area)
+
+    def sincronizar(self, pagina):
+        """Copia o estado atual dos gráficos e do registro da página."""
+        for destino, origem in (("temp", pagina.pontos_temp),
+                                ("bruto", pagina.pontos_bruto),
+                                ("fora", pagina.pontos_fora),
+                                ("usados", pagina.pontos_usados)):
+            x, y = origem.getData()
+            self.itens[destino].setData(x if x is not None else [],
+                                        y if y is not None else [])
+        x, y = pagina.reta.getData()
+        self.itens["reta"].setData(x if x is not None else [],
+                                   y if y is not None else [])
+        self.registro.setHtml(pagina.registro.toHtml())
+        barra = self.registro.verticalScrollBar()
+        barra.setValue(barra.maximum())
+
+
 class PaginaExecucaoBase(QWidget):
     """Esqueleto comum às duas páginas de coleta."""
 
     titulo = "Execução"
+    titulo_visao = "Coleta"
     nome_objeto = "pagina_execucao"
     cor_iniciar = "#2e7d32"
 
@@ -172,47 +255,85 @@ class PaginaExecucaoBase(QWidget):
         return cartao
 
     def _cartao_graficos(self) -> CardWidget:
+        """
+        UM gráfico por vez, escolhido por segmentos.
+
+        Três gráficos lado a lado num monitor de 1366 px viram três gráficos
+        ilegíveis. Com um de cada vez, o que está na tela é grande o bastante
+        para se ler. Quem quiser os três juntos usa "Ver tudo", que abre uma
+        janela própria — aí sim com espaço para os três empilhados.
+        """
         cartao = CardWidget(self)
         layout = QHBoxLayout(cartao)
         layout.setContentsMargins(12, 12, 12, 12)
 
         pg.setConfigOption('background', '#202020')
         pg.setConfigOption('foreground', '#d4d4d4')
-        self.graficos = pg.GraphicsLayoutWidget()
-        self.graficos.setMinimumHeight(360)
 
-        self.plot_temp = self.graficos.addPlot(title="Temperatura do filamento (K)")
+        coluna_graficos = QVBoxLayout()
+
+        barra = QHBoxLayout()
+        # O callback por item do SegmentedWidget só dispara em clique do
+        # usuário; trocar por código não o aciona. Por isso a troca de gráfico
+        # é ligada ao SINAL currentItemChanged, que vale para os dois casos.
+        self._indice_grafico = {"temp": 0, "bruto": 1, "linear": 2}
+        self.seletor_grafico = SegmentedWidget()
+        for chave, titulo in (("temp", "Temperatura"),
+                              ("bruto", "Fotocorrente"),
+                              ("linear", "Linearização ln(I) × 1/T")):
+            self.seletor_grafico.addItem(chave, titulo)
+        self.seletor_grafico.currentItemChanged.connect(
+            lambda chave: self.pilha_graficos.setCurrentIndex(
+                self._indice_grafico.get(chave, 0)))
+        self.seletor_grafico.setCurrentItem("temp")
+
+        self.btn_ver_tudo = PushButton(FluentIcon.ZOOM, "Ver tudo")
+        self.btn_ver_tudo.setToolTip(
+            "Abre uma janela com os três gráficos e o registro empilhados.")
+        self.btn_ver_tudo.clicked.connect(self.abrir_visao_completa)
+
+        barra.addWidget(self.seletor_grafico)
+        barra.addStretch()
+        barra.addWidget(self.btn_ver_tudo)
+        coluna_graficos.addLayout(barra)
+
+        self.pilha_graficos = QStackedWidget()
+        self.pilha_graficos.setMinimumHeight(380)
+
+        self.plot_temp = pg.PlotWidget(title="Temperatura do filamento")
         self.plot_temp.setLabel('left', "T (K)")
         self.plot_temp.setLabel('bottom', "Tensão (V)")
-        self.pontos_temp = pg.ScatterPlotItem(size=6, pen=pg.mkPen(None),
-                                              brush=pg.mkBrush(255, 165, 0, 200))
+        self.pontos_temp = pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
+                                              brush=pg.mkBrush(255, 165, 0, 210))
         self.plot_temp.addItem(self.pontos_temp)
 
-        self.plot_bruto = self.graficos.addPlot(title="Fotocorrente (A)")
+        self.plot_bruto = pg.PlotWidget(title="Fotocorrente do LED")
         self.plot_bruto.setLabel('left', "I (A)")
         self.plot_bruto.setLabel('bottom', "Tensão (V)")
-        self.pontos_bruto = pg.ScatterPlotItem(size=6, pen=pg.mkPen(None),
-                                               brush=pg.mkBrush(0, 150, 255, 200))
+        self.pontos_bruto = pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
+                                               brush=pg.mkBrush(0, 150, 255, 210))
         self.plot_bruto.addItem(self.pontos_bruto)
 
-        self.graficos.nextRow()
-        self.plot_linear = self.graficos.addPlot(
-            title="Linearização ln(I) × 1/T", colspan=2)
+        self.plot_linear = pg.PlotWidget(title="Linearização ln(I) × 1/T")
         self.plot_linear.setLabel('left', "ln(I)")
         self.plot_linear.setLabel('bottom', "1/T (K⁻¹)")
         self.plot_linear.addLegend(offset=(-10, 10))
         self.pontos_fora = pg.ScatterPlotItem(
-            size=6, pen=pg.mkPen(None), brush=pg.mkBrush(120, 120, 120, 150),
+            size=7, pen=pg.mkPen(None), brush=pg.mkBrush(130, 130, 130, 150),
             name="Descartado (fora da região de Wien)")
         self.pontos_usados = pg.ScatterPlotItem(
-            size=6, pen=pg.mkPen('w'), brush=pg.mkBrush(255, 60, 60, 220),
+            size=7, pen=pg.mkPen(None), brush=pg.mkBrush(171, 71, 188, 220),
             name="Usado na regressão")
         self.reta = pg.PlotDataItem(pen=pg.mkPen('w', width=2, style=Qt.DashLine))
-        self.plot_linear.addItem(self.pontos_fora)
-        self.plot_linear.addItem(self.pontos_usados)
-        self.plot_linear.addItem(self.reta)
+        for item in (self.pontos_fora, self.pontos_usados, self.reta):
+            self.plot_linear.addItem(item)
 
-        layout.addWidget(self.graficos, stretch=3)
+        for grafico in (self.plot_temp, self.plot_bruto, self.plot_linear):
+            grafico.showGrid(x=True, y=True, alpha=0.15)
+            self.pilha_graficos.addWidget(grafico)
+
+        coluna_graficos.addWidget(self.pilha_graficos)
+        layout.addLayout(coluna_graficos, stretch=3)
 
         painel_registro = QWidget()
         coluna = QVBoxLayout(painel_registro)
@@ -230,7 +351,17 @@ class PaginaExecucaoBase(QWidget):
 
         layout.addWidget(painel_registro, stretch=1)
 
+        self.visao_completa = None
         return cartao
+
+    def abrir_visao_completa(self):
+        """Janela própria com os três gráficos e o registro empilhados."""
+        if self.visao_completa is None:
+            self.visao_completa = JanelaGraficos(self.titulo_visao, self)
+        self.visao_completa.sincronizar(self)
+        self.visao_completa.show()
+        self.visao_completa.raise_()
+        self.visao_completa.activateWindow()
 
     # -- ciclo de coleta -----------------------------------------------------
 
@@ -282,6 +413,9 @@ class PaginaExecucaoBase(QWidget):
         self.registro.verticalScrollBar().setValue(
             self.registro.verticalScrollBar().maximum())
 
+        if self.visao_completa is not None and self.visao_completa.isVisible():
+            self.visao_completa.sincronizar(self)
+
         self.barra.setValue(len(self.data_v))
         self.lbl_andamento.setText(
             f"ponto {len(self.data_v)}/{self.barra.maximum()} · {temperatura:.0f} K")
@@ -327,6 +461,9 @@ class PaginaExecucaoBase(QWidget):
             'orcamento': resultado.orcamento_ordenado(),
             'compativel': resultado.compativel_com_codata,
         }
+
+        if self.visao_completa is not None and self.visao_completa.isVisible():
+            self.visao_completa.sincronizar(self)
 
         if resultado.compativel_com_codata:
             InfoBar.success("Coleta concluída",

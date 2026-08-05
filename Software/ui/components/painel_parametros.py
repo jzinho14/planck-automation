@@ -12,12 +12,15 @@ migrar para páginas com cartões — só muda quem o hospeda.
 """
 from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QGroupBox,
                                QLineEdit, QLabel, QComboBox, QPushButton,
-                               QHBoxLayout, QInputDialog, QMessageBox)
+                               QHBoxLayout, QInputDialog, QMessageBox,
+                               QStackedWidget)
+from qfluentwidgets import SegmentedWidget
 from PySide6.QtCore import Signal
 
 from content.perfis import (carregar_perfis, acrescentar_perfil, salvar_perfis,
                             avisos, PerfilCompleto)
-from core.hardware_manager import preferencias
+from core.hardware_manager import (preferencias, limite_corrente,
+                                   CHAVE_LIMITE_CORRENTE)
 from utils.math_models import (corrigir_r0_para_zero_celsius,
                                TEMPERATURA_AMBIENTE_PADRAO,
                                TEMPERATURA_MINIMA_PADRAO)
@@ -49,129 +52,153 @@ class PainelParametros(QWidget):
     # -- construção ----------------------------------------------------------
 
     def _montar(self):
+        """
+        Configuração organizada em SEÇÕES, não numa coluna única.
+
+        A página tinha vinte campos empilhados e ficava ilegível. Agora cada
+        assunto tem a sua seção, e o atalho de catálogo de cada assunto fica
+        DENTRO dela, logo acima dos campos que preenche — em vez de num bloco
+        separado, que obrigava a olhar em dois lugares para entender de onde
+        veio um valor.
+        """
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(10)
 
-        # --- Perfil completo: o estado inteiro da página ---
-        grupo_completo = QGroupBox("Perfil")
-        forma_completo = QFormLayout()
+        layout.addWidget(self._grupo_perfil_completo())
+
+        self.seletor_secao = SegmentedWidget()
+        self.secoes = QStackedWidget()
+
+        disponiveis = self._secoes_disponiveis()
+        self._indice_secao = {}
+        for chave, titulo, construtor in disponiveis:
+            self._indice_secao[chave] = self.secoes.count()
+            self.secoes.addWidget(construtor())
+            self.seletor_secao.addItem(chave, titulo)
+
+        # Ligado ao sinal, e não ao callback por item: o callback só dispara em
+        # clique do usuário, então trocar de seção por código não funcionava.
+        self.seletor_secao.currentItemChanged.connect(
+            lambda chave: self.secoes.setCurrentIndex(
+                self._indice_secao.get(chave, 0)))
+        self.seletor_secao.setCurrentItem(disponiveis[0][0])
+
+        layout.addWidget(self.seletor_secao)
+        layout.addWidget(self.secoes)
+        layout.addStretch()
+
+    def _secoes_disponiveis(self) -> list:
+        secoes = [
+            ("filamento", "Filamento", self._secao_filamento),
+            ("sensor", "Sensor (LED)", self._secao_sensor),
+            ("varredura", "Varredura", self._secao_varredura),
+        ]
+        if self.modo in ("bancada", "completo"):
+            secoes.append(("bancada", "Bancada", self._secao_bancada))
+        if self.modo in ("simulacao", "completo"):
+            secoes.append(("simulacao", "Simulação", self._secao_simulacao))
+        return secoes
+
+    def _grupo_perfil_completo(self) -> QGroupBox:
+        """Perfil que guarda TODOS os campos — vale para todas as seções."""
+        grupo = QGroupBox("Perfil de configuração")
+        forma = QFormLayout()
 
         self.combo_completo = QComboBox()
         self.combo_completo.currentIndexChanged.connect(self._aplicar_completo)
 
-        linha_botoes = QWidget()
-        botoes = QHBoxLayout(linha_botoes)
+        linha = QWidget()
+        botoes = QHBoxLayout(linha)
         botoes.setContentsMargins(0, 0, 0, 0)
-        self.btn_salvar = QPushButton("💾 Salvar como…")
+        self.btn_salvar = QPushButton("Salvar como…")
         self.btn_salvar.setToolTip(
-            "Guarda TODOS os campos desta página com um nome.\n"
+            "Guarda TODOS os campos de TODAS as seções com um nome.\n"
             "Um nome existente é substituído.")
         self.btn_salvar.clicked.connect(self._salvar_completo)
-        self.btn_excluir = QPushButton("🗑 Excluir")
+        self.btn_excluir = QPushButton("Excluir")
         self.btn_excluir.clicked.connect(self._excluir_completo)
         botoes.addWidget(self.btn_salvar)
         botoes.addWidget(self.btn_excluir)
         botoes.addStretch()
 
-        forma_completo.addRow("Perfil ativo:", self.combo_completo)
-        forma_completo.addRow("", linha_botoes)
-        forma_completo.addRow("", QLabel(
-            "Guarda todos os campos abaixo. O software reabre no último "
-            "perfil usado."))
-
         self.lbl_avisos = QLabel()
         self.lbl_avisos.setWordWrap(True)
         self.lbl_avisos.setStyleSheet("color: #ffb74d; font-size: 11px;")
-        forma_completo.addRow("", self.lbl_avisos)
 
-        grupo_completo.setLayout(forma_completo)
-        layout.addWidget(grupo_completo)
+        forma.addRow("Perfil ativo:", self.combo_completo)
+        forma.addRow("", linha)
+        forma.addRow("", QLabel("O software reabre no último perfil usado."))
+        forma.addRow("", self.lbl_avisos)
+        grupo.setLayout(forma)
+        return grupo
 
-        # --- Atalhos de catálogo: preenchem parte dos campos ---
-        grupo_perfis = QGroupBox("Atalhos de catálogo (opcionais)")
-        form_perfis = QFormLayout()
+    def _secao_filamento(self) -> QWidget:
+        pagina = QWidget()
+        forma = QFormLayout(pagina)
 
-        self.combo_led = QComboBox()
         self.combo_filamento = QComboBox()
-        self.combo_varredura = QComboBox()
-        self.combo_led.currentIndexChanged.connect(self._aplicar_led)
         self.combo_filamento.currentIndexChanged.connect(self._aplicar_filamento)
-        self.combo_varredura.currentIndexChanged.connect(self._aplicar_varredura)
-
-        for combo in (self.combo_led, self.combo_filamento, self.combo_varredura):
-            combo.setToolTip("Preenche alguns campos. Você pode editar "
-                             "qualquer valor à mão depois.")
-
-        form_perfis.addRow("LED (sensor):", self.combo_led)
-        form_perfis.addRow("Filamento:", self.combo_filamento)
-        form_perfis.addRow("Varredura:", self.combo_varredura)
-        form_perfis.addRow("", QLabel(
-            "São só pontos de partida — todo campo continua editável à mão."))
-
-        grupo_perfis.setLayout(form_perfis)
-        layout.addWidget(grupo_perfis)
-
-        # --- Filamento medido nesta montagem ---
-        grupo_fisica = QGroupBox("Filamento desta montagem")
-        form_fisica = QFormLayout()
+        self.combo_filamento.setToolTip(
+            "Preenche α e β. Você pode editar os valores à mão depois.")
 
         self.input_r_frio = QLineEdit("1.2")
         self.input_u_r_frio = QLineEdit("0.01")
         self.input_t_ambiente = QLineEdit(str(TEMPERATURA_AMBIENTE_PADRAO))
         self.input_alpha = QLineEdit()
         self.input_beta = QLineEdit()
-        self.input_lambda = QLineEdit()
-        self.input_delta_lambda = QLineEdit()
 
         self.input_r_frio.setToolTip(
             "Resistência do filamento medida frio, na temperatura ambiente.\n"
             "Não é R0: o software converte para 0 °C automaticamente.")
-        self.input_u_r_frio.setToolTip(
-            "Incerteza da medida acima (o erro do ohmímetro).")
+        self.input_u_r_frio.setToolTip("Incerteza da medida acima.")
         self.input_t_ambiente.setToolTip(
             "Temperatura em que a resistência a frio foi medida.\n"
             "Errar aqui desloca TODAS as temperaturas calculadas.")
-        self.input_delta_lambda.setToolTip(
-            "Meia largura espectral do LED. É quase sempre a maior fonte\n"
-            "de incerteza em h — vem do perfil, mas pode ser ajustada.")
 
         self.lbl_r0 = QLabel()
         self.lbl_r0.setStyleSheet("color: #64B5F6; font-size: 11px;")
-
         for campo in (self.input_r_frio, self.input_u_r_frio,
                       self.input_t_ambiente, self.input_alpha, self.input_beta):
             campo.textChanged.connect(self._atualizar_r0)
 
-        form_fisica.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
-        form_fisica.addRow("Incerteza de R a frio (Ω):", self.input_u_r_frio)
-        form_fisica.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
-        form_fisica.addRow("", self.lbl_r0)
-        form_fisica.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
-        form_fisica.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
-        form_fisica.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
-        form_fisica.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
+        forma.addRow("Catálogo de coeficientes:", self.combo_filamento)
+        forma.addRow("Resistência a frio medida (Ω):", self.input_r_frio)
+        forma.addRow("Incerteza de R a frio (Ω):", self.input_u_r_frio)
+        forma.addRow("Temperatura ambiente (°C):", self.input_t_ambiente)
+        forma.addRow("", self.lbl_r0)
+        forma.addRow("Coef. Linear α (K⁻¹):", self.input_alpha)
+        forma.addRow("Coef. Quadrático β (K⁻²):", self.input_beta)
+        return pagina
 
-        if self.modo in ("bancada", "completo"):
-            self.input_r_cabos = QLineEdit("0.0")
-            self.input_r_cabos.setToolTip(
-                "Resistência dos cabos da medição a 2 fios, descontada de R.\n"
-                "Meça curto-circuitando as pontas; deixe 0 se não souber.")
-            form_fisica.addRow("Resistência dos cabos (Ω):", self.input_r_cabos)
-        if self.modo in ("simulacao", "completo"):
-            self.input_noise = QLineEdit("0.05")
-            self.input_noise.setToolTip(
-                "Amplitude do ruído somado à fotocorrente simulada, como\n"
-                "fração do sinal. Só afeta a página de Simulação.")
-            form_fisica.addRow("Fator de Ruído — simulação (0 a 1):", self.input_noise)
+    def _secao_sensor(self) -> QWidget:
+        pagina = QWidget()
+        forma = QFormLayout(pagina)
 
-        grupo_fisica.setLayout(form_fisica)
-        layout.addWidget(grupo_fisica)
+        self.combo_led = QComboBox()
+        self.combo_led.currentIndexChanged.connect(self._aplicar_led)
+        self.combo_led.setToolTip(
+            "Preenche λ e Δλ. Você pode editar os valores à mão depois.")
 
-        # --- Varredura ---
-        titulo = ("Varredura (Simulação)" if self.modo == "simulacao"
-                  else "Varredura")
-        grupo_varredura = QGroupBox(titulo)
-        form_varredura = QFormLayout()
+        self.input_lambda = QLineEdit()
+        self.input_delta_lambda = QLineEdit()
+        self.input_delta_lambda.setToolTip(
+            "Meia largura espectral do LED. É quase sempre a MAIOR fonte\n"
+            "de incerteza em h.")
+
+        forma.addRow("Catálogo de LEDs:", self.combo_led)
+        forma.addRow("Comprimento de Onda λ (nm):", self.input_lambda)
+        forma.addRow("Largura espectral Δλ (nm):", self.input_delta_lambda)
+        return pagina
+
+    def _secao_varredura(self) -> QWidget:
+        pagina = QWidget()
+        forma = QFormLayout(pagina)
+
+        self.combo_varredura = QComboBox()
+        self.combo_varredura.currentIndexChanged.connect(self._aplicar_varredura)
+        self.combo_varredura.setToolTip(
+            "Preenche a faixa e o passo. Tudo continua editável à mão.")
 
         self.input_v_start = QLineEdit()
         self.input_v_end = QLineEdit()
@@ -184,22 +211,71 @@ class PainelParametros(QWidget):
 
         rotulo_espera = ("Intervalo de Captura (ms):" if self.modo == "simulacao"
                          else "Estabilização Térmica (ms):")
-        form_varredura.addRow("Tensão Inicial (V):", self.input_v_start)
-        form_varredura.addRow("Tensão Final (V):", self.input_v_end)
-        form_varredura.addRow("Passo de Tensão (V):", self.input_v_step)
-        form_varredura.addRow(rotulo_espera, self.input_delay)
+
+        forma.addRow("Catálogo de varreduras:", self.combo_varredura)
+        forma.addRow("Tensão Inicial (V):", self.input_v_start)
+        forma.addRow("Tensão Final (V):", self.input_v_end)
+        forma.addRow("Passo de Tensão (V):", self.input_v_step)
+        forma.addRow(rotulo_espera, self.input_delay)
 
         if self.modo in ("bancada", "completo"):
             self.input_n_leituras = QLineEdit("1")
             self.input_n_leituras.setToolTip(
                 "Leituras da fotocorrente por ponto. Com N > 1 o software\n"
-                "calcula a incerteza Tipo A (s/√N). Custa N vezes mais tempo.")
-            form_varredura.addRow("Leituras por ponto (N):", self.input_n_leituras)
+                "calcula a incerteza Tipo A (s/raiz(N)). Custa N vezes mais tempo.")
+            forma.addRow("Leituras por ponto (N):", self.input_n_leituras)
 
-        form_varredura.addRow("Temp. mínima p/ regressão (K):", self.input_t_minima)
-        grupo_varredura.setLayout(form_varredura)
-        layout.addWidget(grupo_varredura)
-        layout.addStretch()
+        forma.addRow("Temp. mínima p/ regressão (K):", self.input_t_minima)
+        return pagina
+
+    def _secao_bancada(self) -> QWidget:
+        """
+        Parâmetros de hardware — incluindo o limite de corrente (B4).
+
+        O limite mora aqui, e não na página de coleta: é configuração, e
+        configuração tem um lugar só. A página de Bancada apenas exibe o valor
+        em vigor, para o operador conferir antes de iniciar.
+        """
+        pagina = QWidget()
+        forma = QFormLayout(pagina)
+
+        self.input_limite = QLineEdit(f"{limite_corrente():g}")
+        self.input_limite.setToolTip(
+            "Limite de corrente da fonte — proteção do filamento.\n"
+            "A lâmpada em uso opera até 24 W; a 12 V isso dá 2,0 A.\n"
+            "O valor fica gravado nos metadados de cada coleta.")
+        self.input_limite.editingFinished.connect(self._gravar_limite)
+
+        self.input_r_cabos = QLineEdit("0.0")
+        self.input_r_cabos.setToolTip(
+            "Resistência dos cabos da medição a 2 fios, descontada de R.\n"
+            "Meça curto-circuitando as pontas; deixe 0 se não souber.")
+
+        forma.addRow("Limite de corrente da fonte (A):", self.input_limite)
+        forma.addRow("", QLabel("Proteção do filamento: a fonte não entrega "
+                                "mais que isto, entrando em modo corrente "
+                                "constante."))
+        forma.addRow("Resistência dos cabos (Ω):", self.input_r_cabos)
+        return pagina
+
+    def _secao_simulacao(self) -> QWidget:
+        pagina = QWidget()
+        forma = QFormLayout(pagina)
+        self.input_noise = QLineEdit("0.05")
+        self.input_noise.setToolTip(
+            "Amplitude do ruído somado à fotocorrente simulada, como\n"
+            "fração do sinal. Só afeta a página de Simulação.")
+        forma.addRow("Fator de Ruído (0 a 1):", self.input_noise)
+        forma.addRow("", QLabel("Só afeta a página de Simulação; a coleta real "
+                                "não usa este valor."))
+        return pagina
+
+    def _gravar_limite(self):
+        try:
+            preferencias().setValue(CHAVE_LIMITE_CORRENTE,
+                                    float(self.input_limite.text()))
+        except ValueError:
+            pass
 
     # -- perfis --------------------------------------------------------------
 
@@ -423,5 +499,10 @@ class PainelParametros(QWidget):
                                     if hasattr(self, "input_n_leituras") else 1)
         parametros['noise'] = (float(self.input_noise.text())
                                if hasattr(self, "input_noise") else 0.05)
+        # B4: o limite de corrente e configuracao, entao viaja com os
+        # demais parametros e acaba nos metadados da coleta.
+        parametros['limite_corrente'] = (float(self.input_limite.text())
+                                         if hasattr(self, "input_limite")
+                                         else limite_corrente())
 
         return parametros

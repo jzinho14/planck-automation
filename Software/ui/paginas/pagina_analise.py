@@ -26,6 +26,7 @@ from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, StrongBodyL
                             CaptionLabel, PushButton, PrimaryPushButton, TextEdit,
                             FluentIcon, InfoBar, InfoBarPosition, SegmentedWidget)
 
+from ui.components.indicadores import estilo_terminal
 from core import carregador
 from utils.error_models import analisar_experimento
 from utils.math_models import selecionar_pontos_validos
@@ -122,8 +123,12 @@ class PaginaAnalise(QWidget):
         vertical = QVBoxLayout(corpo)
         self.relatorio = TextEdit()
         self.relatorio.setReadOnly(True)
-        self.relatorio.setStyleSheet(
-            "font-family: Consolas, monospace; font-size: 11px;")
+        self.relatorio.setStyleSheet(estilo_terminal())
+        self.relatorio.setPlainText(
+            "Escolha uma ou mais coletas acima e use “Analisar selecionadas”.\n\n"
+            "O relatório mostra a cadeia inteira, passo a passo:\n"
+            "   medidas brutas → resistência → temperatura → seleção →\n"
+            "   ajuste ponderado → h ± U → Stefan-Boltzmann")
         vertical.addWidget(self.relatorio)
         cartao.viewLayout.addWidget(corpo)
         return cartao
@@ -230,6 +235,7 @@ class PaginaAnalise(QWidget):
         for coleta in coletas:
             linhas.extend(self._analisar_uma(coleta, parametros))
             linhas.append("")
+            linhas.append("")
 
         self.relatorio.setPlainText("\n".join(linhas))
         self.desenhar(self.seletor.currentRouteKey() or "bruto")
@@ -237,9 +243,9 @@ class PaginaAnalise(QWidget):
     def _analisar_uma(self, coleta, parametros_atuais: dict) -> list:
         """Monta o relatório passo a passo de uma coleta."""
         linhas = [
-            "=" * 58,
-            coleta.nome,
-            "=" * 58,
+            "─" * 54,
+            f"  {coleta.nome}",
+            "─" * 54,
             f"{coleta.n_pontos} pontos · {'simulada' if coleta.simulada else 'real'}"
             f" · formato {coleta.geracao}",
         ]

@@ -24,6 +24,9 @@ from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, TitleLabel,
                             InfoBarPosition, FluentIcon)
 
 from utils.math_models import selecionar_pontos_validos
+from ui.components.indicadores import (Indicador, SeloVeredicto, BarraOrcamento,
+                                       LegendaOrcamento, estilo_terminal,
+                                       linha_registro, cabecalho_registro)
 from ui.components.export_dialog import ExportDialog
 from utils.pdf_exporter import generate_planck_report
 
@@ -82,29 +85,65 @@ class PaginaExecucaoBase(QWidget):
         return cartao
 
     def _cartao_resultado(self) -> HeaderCardWidget:
+        """
+        Resultado: número-herói + indicadores + veredicto + orçamento.
+
+        O valor de h é a única coisa que o operador procura ao terminar, então
+        ele é o número grande. O resto são diagnósticos — cabem em blocos
+        pequenos ao lado, não em frases corridas.
+        """
         cartao = HeaderCardWidget(self)
         cartao.setTitle("Resultado")
 
         corpo = QWidget()
         vertical = QVBoxLayout(corpo)
+        vertical.setSpacing(12)
 
+        # --- linha 1: o número que importa + o veredicto ---
+        linha_topo = QHBoxLayout()
+        coluna_h = QVBoxLayout()
+        coluna_h.setSpacing(0)
         self.lbl_h = TitleLabel("—")
-        self.lbl_h.setAlignment(Qt.AlignCenter)
-        self.lbl_detalhe = BodyLabel("Aguardando coleta.")
-        self.lbl_detalhe.setAlignment(Qt.AlignCenter)
-        self.lbl_detalhe.setWordWrap(True)
-        self.lbl_orcamento = CaptionLabel("")
-        self.lbl_orcamento.setAlignment(Qt.AlignCenter)
-        self.lbl_orcamento.setWordWrap(True)
+        self.lbl_unidade = CaptionLabel("constante de Planck (J·s), incerteza expandida k=2")
+        coluna_h.addWidget(self.lbl_h)
+        coluna_h.addWidget(self.lbl_unidade)
+
+        self.selo = SeloVeredicto()
+
+        linha_topo.addLayout(coluna_h)
+        linha_topo.addStretch()
+        linha_topo.addWidget(self.selo)
+        vertical.addLayout(linha_topo)
+
+        # --- linha 2: indicadores de diagnóstico ---
+        self.indicadores = {
+            "erro": Indicador("erro vs CODATA", dica="Distância percentual do valor de referência."),
+            "r2": Indicador("R²", dica="Quão bem os pontos se ajustam à reta linearizada."),
+            "chi2": Indicador("χ² reduzido",
+                              dica="Compara a dispersão observada com a incerteza declarada.\n"
+                                   "Neste experimento fica abaixo de 1 por construção:\n"
+                                   "a especificação de datasheet é um limite de pior caso."),
+            "pontos": Indicador("pontos na regressão",
+                                dica="Quantos dos pontos coletados entraram na conta."),
+        }
+        linha_indicadores = QHBoxLayout()
+        linha_indicadores.setSpacing(10)
+        for indicador in self.indicadores.values():
+            linha_indicadores.addWidget(indicador)
+        vertical.addLayout(linha_indicadores)
+
+        # --- linha 3: orçamento de incertezas ---
+        self.lbl_titulo_orcamento = CaptionLabel("Composição da incerteza")
+        self.barra_orcamento = BarraOrcamento()
+        self.legenda_orcamento = LegendaOrcamento()
+        vertical.addWidget(self.lbl_titulo_orcamento)
+        vertical.addWidget(self.barra_orcamento)
+        vertical.addWidget(self.legenda_orcamento)
 
         self.btn_pdf = PushButton(FluentIcon.DOCUMENT, "Exportar relatório PDF")
         self.btn_pdf.setEnabled(False)
         self.btn_pdf.clicked.connect(self.exportar_pdf)
-
-        vertical.addWidget(self.lbl_h)
-        vertical.addWidget(self.lbl_detalhe)
-        vertical.addWidget(self.lbl_orcamento)
-        vertical.addWidget(self.btn_pdf, alignment=Qt.AlignCenter)
+        vertical.addWidget(self.btn_pdf, alignment=Qt.AlignLeft)
 
         cartao.viewLayout.addWidget(corpo)
         return cartao
@@ -151,14 +190,20 @@ class PaginaExecucaoBase(QWidget):
 
         layout.addWidget(self.graficos, stretch=3)
 
+        painel_registro = QWidget()
+        coluna = QVBoxLayout(painel_registro)
+        coluna.setContentsMargins(0, 0, 0, 0)
+        coluna.setSpacing(6)
+        coluna.addWidget(CaptionLabel("Registro da coleta"))
+
         self.registro = QTextEdit()
         self.registro.setReadOnly(True)
-        self.registro.setMinimumWidth(280)
-        self.registro.setStyleSheet(
-            "background-color: #141414; color: #7CFC7C; border: none;"
-            "font-family: Consolas, monospace; font-size: 11px;")
-        self.registro.append("=== REGISTRO EM TEMPO REAL ===")
-        layout.addWidget(self.registro, stretch=1)
+        self.registro.setMinimumWidth(320)
+        self.registro.setStyleSheet(estilo_terminal())
+        self.registro.setHtml(cabecalho_registro())
+        coluna.addWidget(self.registro)
+
+        layout.addWidget(painel_registro, stretch=1)
 
         return cartao
 
@@ -174,8 +219,7 @@ class PaginaExecucaoBase(QWidget):
                      self.pontos_usados, self.pontos_fora, self.reta):
             item.setData([], [])
         self.registro.clear()
-        self.registro.append("=== REGISTRO EM TEMPO REAL ===")
-        self.registro.append("V | I_fil | T(K) | I_foto(A)")
+        self.registro.setHtml(cabecalho_registro())
 
         params = self.parametros()
         vetor = np.arange(params['v_start'],
@@ -187,7 +231,7 @@ class PaginaExecucaoBase(QWidget):
         self.params = params
         return params
 
-    def novo_ponto(self, tensao, temperatura, fotocorrente):
+    def novo_ponto(self, tensao, corrente, temperatura, fotocorrente):
         self.data_v.append(tensao)
         self.data_t.append(temperatura)
         self.data_i_led.append(fotocorrente)
@@ -207,9 +251,8 @@ class PaginaExecucaoBase(QWidget):
             else:
                 cena.setData([], [])
 
-        marca = "" if usados[-1] else "  (fora)"
         self.registro.append(
-            f"{tensao:05.2f}V | {temperatura:06.1f}K | {fotocorrente:.2e}A{marca}")
+            linha_registro(tensao, corrente, temperatura, fotocorrente, bool(usados[-1])))
         self.registro.verticalScrollBar().setValue(
             self.registro.verticalScrollBar().maximum())
 
@@ -225,14 +268,21 @@ class PaginaExecucaoBase(QWidget):
         self.btn_parar.setEnabled(False)
         self.btn_pdf.setEnabled(True)
 
-        self.lbl_h.setText(f"h = {resultado.texto}")
-        self.lbl_detalhe.setText(
-            f"Erro vs CODATA {resultado.erro_relativo:.2f}%  ·  "
-            f"R² {resultado.ajuste.r2:.4f}  ·  χ²_red {resultado.ajuste.chi2_reduzido:.3f}  ·  "
-            f"{resultado.n_usados} de {resultado.n_total} pontos")
-        self.lbl_orcamento.setText(
-            "Incerteza: " + " · ".join(f"{nome} {pct:.0f}%"
-                                       for nome, pct in resultado.orcamento_ordenado()))
+        self.lbl_h.setText(resultado.texto)
+        self.indicadores["erro"].definir(f"{resultado.erro_relativo:.2f}%")
+        self.indicadores["r2"].definir(f"{resultado.ajuste.r2:.4f}")
+        self.indicadores["chi2"].definir(f"{resultado.ajuste.chi2_reduzido:.3f}")
+        self.indicadores["pontos"].definir(
+            f"{resultado.n_usados}/{resultado.n_total}")
+
+        self.selo.definir(
+            resultado.compativel_com_codata,
+            "Compatível com a CODATA" if resultado.compativel_com_codata
+            else "CODATA fora da incerteza — há sistemático não contabilizado")
+
+        fatias = resultado.orcamento_ordenado()
+        self.barra_orcamento.definir(fatias)
+        self.legenda_orcamento.definir(fatias)
 
         usados = resultado.mascara
         temperaturas = resultado.temperaturas

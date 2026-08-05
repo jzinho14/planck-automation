@@ -91,6 +91,45 @@ class PerfilInstrumento:
 
 
 @dataclass(frozen=True)
+class PerfilCompleto:
+    """
+    O estado inteiro da página de Parâmetros, com nome.
+
+    Os perfis de LED, filamento e varredura são atalhos: preenchem parte dos
+    campos. Este aqui guarda TUDO — inclusive o que o operador digitou à mão,
+    fora de qualquer catálogo. É o que se salva no fim de uma sessão de ajuste
+    e o que o software recarrega na próxima abertura.
+    """
+
+    nome: str
+    # filamento desta montagem
+    r_frio: float = 1.2
+    u_r_frio: float = 0.01
+    t_ambiente: float = 25.0
+    alpha: float = 5.23e-3
+    beta: float = 7.0e-7
+    # sensor
+    lambda_nm: float = 590.0
+    delta_lambda_nm: float = 30.0
+    # bancada
+    r_cabos: float = 0.0
+    ruido: float = 0.05
+    # varredura
+    v_start: float = 1.0
+    v_end: float = 10.0
+    v_step: float = 0.5
+    delay_ms: float = 3000.0
+    n_leituras: int = 1
+    t_minima: float = 1800.0
+    observacao: str = ""
+
+    @property
+    def rotulo(self) -> str:
+        return (f"{self.nome}  ({self.v_start:g}–{self.v_end:g} V · "
+                f"λ {self.lambda_nm:g} nm)")
+
+
+@dataclass(frozen=True)
 class PerfilVarredura:
     nome: str
     v_start: float
@@ -146,6 +185,21 @@ PADROES = {
                           0.0005, 2e-3, "A",
                           "Tektronix 077-0480-00, Tabela 1"),
     ],
+    "completos": [
+        PerfilCompleto(
+            nome="Padrão",
+            observacao="Ponto de partida. Salve o seu por cima ou com outro nome."),
+        PerfilCompleto(
+            nome="Varredura completa 0–12 V",
+            v_start=0.0, v_end=12.0, v_step=0.25,
+            observacao="Registra o filamento inteiro; o corte de 1800 K "
+                       "protege a regressão dos pontos frios."),
+        PerfilCompleto(
+            nome="Alta precisão (região de Wien)",
+            v_start=6.0, v_end=12.0, v_step=0.2, delay_ms=4000.0, n_leituras=5,
+            observacao="Só a região útil, com 5 leituras por ponto para obter "
+                       "incerteza Tipo A. Demora bem mais."),
+    ],
     "varreduras": [
         PerfilVarredura("Bancada — padrão", 1.0, 10.0, 0.5, 3000.0, 1, 1800.0,
                         "Faixa conservadora, uma leitura por ponto."),
@@ -165,6 +219,7 @@ _CLASSES = {
     "filamentos": PerfilFilamento,
     "instrumentos": PerfilInstrumento,
     "varreduras": PerfilVarredura,
+    "completos": PerfilCompleto,
 }
 
 

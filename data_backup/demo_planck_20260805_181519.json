@@ -1,0 +1,77 @@
+{
+  "esquema": 1,
+  "iniciado_em": "2026-08-05T18:15:19-03:00",
+  "modo": "demonstracao",
+  "instrumentos": {
+    "fonte": "DEMO::PWS4323::SIMULADO",
+    "multimetro": "DEMO::DMM4050::SIMULADO",
+    "limite_corrente_a": 2.0
+  },
+  "perfis": {
+    "led": "Amarelo 590 nm",
+    "filamento": "Padrão do software",
+    "varredura": "Bancada — padrão"
+  },
+  "filamento_medido": {
+    "resistencia_a_frio_ohm": 1.2,
+    "incerteza_resistencia_a_frio_ohm": 0.01,
+    "temperatura_ambiente_c": 25.0,
+    "r0_corrigido_ohm": 1.0608320901707275,
+    "incerteza_r0_ohm": 0.013253959527150201,
+    "alpha_por_kelvin": 0.00523,
+    "beta_por_kelvin2": 7e-07,
+    "resistencia_cabos_ohm": 0.0
+  },
+  "sensor": {
+    "lambda_nm": 590.0,
+    "delta_lambda_nm": 30.0
+  },
+  "varredura": {
+    "tensao_inicial_v": 1.0,
+    "tensao_final_v": 10.0,
+    "passo_v": 0.5,
+    "estabilizacao_ms": 3000.0,
+    "leituras_por_ponto": 1,
+    "temperatura_minima_regressao_k": 1800.0
+  },
+  "ambiente": {
+    "python": "3.13.11",
+    "sistema": "Windows 11",
+    "maquina": "DESKTOP-FSE51F5"
+  },
+  "resultado": {
+    "h_j_s": 7.021473060024617e-34,
+    "incerteza_padrao_j_s": 4.7285511960515806e-35,
+    "incerteza_expandida_j_s": 9.457102392103161e-35,
+    "fator_abrangencia_k": 2.0,
+    "texto": "(7.02 ± 0.95)×10^-34 J·s (k=2)",
+    "erro_relativo_pct": 5.967381888110811,
+    "compativel_com_codata": true,
+    "ajuste": {
+      "inclinacao": -25841.25742885474,
+      "incerteza_inclinacao": 1541.4148811970797,
+      "intercepto": -4.927618144578126,
+      "incerteza_intercepto": 0.6128422290750906,
+      "r2": 0.9985272352808942,
+      "chi2_reduzido": 0.051816927762459025,
+      "iteracoes": 4
+    },
+    "pontos": {
+      "coletados": 19,
+      "usados_na_regressao": 10
+    },
+    "orcamento_incerteza_h_pct": {
+      "inclinacao (aleatório)": 78.45345725965733,
+      "lambda": 19.002796091079766,
+      "R0": 2.543746649262921
+    },
+    "orcamento_incerteza_temperatura_pct": {
+      "R": 4.429611841852611,
+      "R0": 95.57038815814738,
+      "alpha": 0.0,
+      "beta": 0.0
+    },
+    "h_nao_ponderado_j_s": 6.76865023480863e-34
+  },
+  "encerrado_em": "2026-08-05T18:16:16-03:00"
+}

@@ -2,11 +2,13 @@
 """As duas páginas concretas de coleta: Simulação e Bancada (Fase 5)."""
 from PySide6.QtWidgets import QWidget, QHBoxLayout
 from qfluentwidgets import (CardWidget, StrongBodyLabel, CaptionLabel,
-                            PushButton, FluentIcon, InfoBar, InfoBarPosition)
+                            PushButton, FluentIcon, InfoBar, InfoBarPosition,
+                            DoubleSpinBox)
 
 from core.hardware_manager import (preferencias, limite_corrente,
-                                   CHAVE_MODO_DEMONSTRACAO,
+                                   CHAVE_MODO_DEMONSTRACAO, CHAVE_LIMITE_CORRENTE,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
+from ui.components.indicadores import Indicador
 from ui.paginas.pagina_execucao import PaginaExecucaoBase
 from ui.tabs.tab_simulation import SimulationWorker
 from ui.tabs.tab_experiment import ExperimentWorker
@@ -50,22 +52,62 @@ class PaginaBancada(PaginaExecucaoBase):
         self.layout().insertWidget(0, self._faixa_seguranca())
 
     def _faixa_seguranca(self) -> CardWidget:
+        """
+        Faixa de segurança: estado, limite editável e leitura ao vivo.
+
+        O limite de corrente mora aqui, e não na página de Conexão: é decisão
+        de bancada, e o lugar de decidi-la é onde se aperta o botão de iniciar.
+        """
         cartao = CardWidget(self)
         linha = QHBoxLayout(cartao)
-        linha.setContentsMargins(18, 10, 18, 10)
+        linha.setContentsMargins(18, 12, 18, 12)
+        linha.setSpacing(14)
 
-        self.lbl_seguranca = StrongBodyLabel("⚪ Verifique as ligações antes de iniciar")
-        self.lbl_limite = CaptionLabel("")
+        self.lbl_seguranca = StrongBodyLabel("Verifique as ligações antes de iniciar")
 
-        self.btn_emergencia = PushButton(FluentIcon.CLOSE, "PARADA DE EMERGÊNCIA")
+        self.spin_limite = DoubleSpinBox()
+        self.spin_limite.setRange(0.1, 3.0)
+        self.spin_limite.setSingleStep(0.1)
+        self.spin_limite.setDecimals(2)
+        self.spin_limite.setSuffix(" A")
+        self.spin_limite.setFixedWidth(130)
+        self.spin_limite.setToolTip(
+            "Limite de corrente da fonte — proteção do filamento.\n"
+            "A lâmpada em uso opera até 24 W; a 12 V isso dá 2,0 A.\n"
+            "O valor fica gravado nos metadados de cada coleta.")
+        self.spin_limite.valueChanged.connect(
+            lambda v: preferencias().setValue(CHAVE_LIMITE_CORRENTE, v))
+
+        # Leitura ao vivo do ponto de operação.
+        self.ind_tensao = Indicador("tensão", "—")
+        self.ind_corrente = Indicador("corrente", "—")
+        self.ind_potencia = Indicador("potência", "—",
+                                      "Potência entregue ao filamento (V × i).")
+        for indicador in (self.ind_tensao, self.ind_corrente, self.ind_potencia):
+            indicador.setFixedWidth(110)
+
+        self.btn_emergencia = PushButton("PARAR TUDO")
+        self.btn_emergencia.setIcon(FluentIcon.CANCEL)
+        self.btn_emergencia.setMinimumHeight(38)
+        self.btn_emergencia.setMinimumWidth(150)
+        self.btn_emergencia.setToolTip(
+            "Parada de emergência: zera a tensão e desliga a saída da fonte.")
         self.btn_emergencia.setStyleSheet(
-            "PushButton { background-color: #8b0000; color: white; font-weight: bold; }")
+            "PushButton { background-color: #B3261E; color: white;"
+            " font-weight: 600; border: none; border-radius: 6px;"
+            " padding: 6px 18px; }"
+            "PushButton:hover { background-color: #C7372F; }"
+            "PushButton:pressed { background-color: #8F1D17; }")
         self.btn_emergencia.clicked.connect(self.parada_de_emergencia)
 
         linha.addWidget(self.lbl_seguranca)
-        linha.addSpacing(12)
-        linha.addWidget(self.lbl_limite)
+        linha.addWidget(CaptionLabel("limite:"))
+        linha.addWidget(self.spin_limite)
         linha.addStretch()
+        linha.addWidget(self.ind_tensao)
+        linha.addWidget(self.ind_corrente)
+        linha.addWidget(self.ind_potencia)
+        linha.addSpacing(10)
         linha.addWidget(self.btn_emergencia)
         return cartao
 
@@ -73,10 +115,21 @@ class PaginaBancada(PaginaExecucaoBase):
         cfg = preferencias()
         demo = cfg.value(CHAVE_MODO_DEMONSTRACAO, False, type=bool)
         if demo:
-            self.lbl_seguranca.setText("🟡 Modo demonstração — nenhum hardware será acionado")
+            self.lbl_seguranca.setText("🟡  Demonstração — nenhum hardware acionado")
         else:
-            self.lbl_seguranca.setText("🔴 Bancada real — o filamento vai aquecer")
-        self.lbl_limite.setText(f"limite de corrente: {limite_corrente():.2f} A")
+            self.lbl_seguranca.setText("🔴  Bancada real — o filamento vai aquecer")
+
+        self.spin_limite.blockSignals(True)
+        self.spin_limite.setValue(limite_corrente())
+        self.spin_limite.blockSignals(False)
+
+    def novo_ponto(self, tensao, corrente, temperatura, fotocorrente):
+        """Além de plotar, atualiza a leitura ao vivo do ponto de operação."""
+        super().novo_ponto(tensao, corrente, temperatura, fotocorrente)
+        potencia = tensao * corrente
+        self.ind_tensao.definir(f"{tensao:.2f} V")
+        self.ind_corrente.definir(f"{corrente:.3f} A")
+        self.ind_potencia.definir(f"{potencia:.2f} W")
 
     def parada_de_emergencia(self):
         if self.worker and self.worker.isRunning():

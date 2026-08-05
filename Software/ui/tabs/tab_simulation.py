@@ -20,7 +20,7 @@ from utils.error_models import analisar_experimento
 # --- THREAD DE SIMULAÇÃO EM TEMPO REAL ---
 class SimulationWorker(QThread):
     # Sinais para enviar dados para a interface principal
-    new_data_point = Signal(float, float, float) # Tensão (V), Temperatura (K), Fotocorrente (A)
+    new_data_point = Signal(float, float, float, float)  # V, i_fil, T, I_led
     finished_sim = Signal(object)   # ResultadoAnalise completo
 
     def __init__(self, params):
@@ -49,7 +49,7 @@ class SimulationWorker(QThread):
             if not self.is_running:
                 break
             
-            self.new_data_point.emit(V[i], T[i], I_led[i])
+            self.new_data_point.emit(V[i], I_fil[i], T[i], I_led[i])
             time.sleep(delay) # Simula o tempo de aquisição do DMM/PWS
             
         # 4. Calcular a Constante de Planck com os dados gerados, pela mesma
@@ -225,7 +225,7 @@ class TabSimulation(QWidget):
         self.worker.finished_sim.connect(self.simulation_finished)
         self.worker.start()
 
-    def update_realtime_plots(self, v, t, i_led):
+    def update_realtime_plots(self, v, i_fil, t, i_led):
         # Adicionar novo ponto aos arrays
         self.data_v.append(v)
         self.data_t.append(t)

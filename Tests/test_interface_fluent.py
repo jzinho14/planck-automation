@@ -91,12 +91,22 @@ checa(janela.barra_status.text() != "", "barra de status permanente",
 print("\n3. B4 — limite de corrente configurável")
 
 conexao = janela.pagina_conexao
-conexao.spin_limite.setValue(1.80)
+checa(not hasattr(conexao, "spin_limite"),
+      "o limite saiu da página de Conexão")
+
+bancada_pg = janela.pagina_bancada
+checa(hasattr(bancada_pg, "spin_limite"),
+      "e mora na faixa de segurança da Bancada, onde se aperta iniciar")
+bancada_pg.spin_limite.setValue(1.80)
 checa(abs(limite_corrente() - 1.80) < 1e-9,
       "mudar o campo grava nas preferências", f"{limite_corrente():.2f} A")
-checa(conexao.spin_limite.minimum() >= 0.1 and conexao.spin_limite.maximum() <= 3.0,
+checa(bancada_pg.spin_limite.minimum() >= 0.1
+      and bancada_pg.spin_limite.maximum() <= 3.0,
       "com faixa limitada ao que a fonte entrega",
-      f"{conexao.spin_limite.minimum()}–{conexao.spin_limite.maximum()} A")
+      f"{bancada_pg.spin_limite.minimum()}–{bancada_pg.spin_limite.maximum()} A")
+checa(all(hasattr(bancada_pg, n)
+          for n in ("ind_tensao", "ind_corrente", "ind_potencia")),
+      "e a faixa mostra tensão, corrente e potência ao vivo")
 
 print("\n4. B5 — endereço do multímetro configurável")
 
@@ -118,12 +128,12 @@ janela.atualizar_cabecalho()
 checa("demonstração" in janela.lbl_estado.text(),
       "e a barra de título anuncia o modo", janela.lbl_estado.text())
 janela.pagina_bancada.atualizar_faixa()
-checa("demonstração" in janela.pagina_bancada.lbl_seguranca.text(),
+checa("emonstração" in janela.pagina_bancada.lbl_seguranca.text(),
       "a faixa de segurança da Bancada também",
       janela.pagina_bancada.lbl_seguranca.text())
-checa("1.80" in janela.pagina_bancada.lbl_limite.text(),
-      "e mostra o limite de corrente em vigor",
-      janela.pagina_bancada.lbl_limite.text())
+checa(abs(janela.pagina_bancada.spin_limite.value() - 1.80) < 1e-9,
+      "e o limite em vigor aparece na faixa",
+      f"{janela.pagina_bancada.spin_limite.value():.2f} A")
 
 print("\n6. Parâmetros: uma fonte só para as duas coletas")
 
@@ -180,10 +190,18 @@ if resultado:
     checa(resultado.compativel_com_codata, "compatível com a CODATA")
     checa(bancada.barra.value() == bancada.barra.maximum(),
           "barra de progresso fechou", f"{bancada.barra.value()}/{bancada.barra.maximum()}")
-    checa("h = " in bancada.lbl_h.text(), "o cartão de resultado foi preenchido",
+    checa("±" in bancada.lbl_h.text(), "o número-herói foi preenchido",
           bancada.lbl_h.text())
-    checa("Incerteza:" in bancada.lbl_orcamento.text(),
-          "com o orçamento de incertezas", bancada.lbl_orcamento.text())
+    checa(bancada.indicadores["erro"].lbl_valor.text() != "—",
+          "os indicadores foram preenchidos",
+          bancada.indicadores["erro"].lbl_valor.text())
+    checa(len(bancada.barra_orcamento._fatias) > 0,
+          "a barra de orçamento recebeu as fatias",
+          str([n for n, _ in bancada.barra_orcamento._fatias]))
+    checa("✓" in bancada.selo.lbl.text() or "⚠" in bancada.selo.lbl.text(),
+          "o selo de veredicto traz ícone além da cor", bancada.selo.lbl.text())
+    checa(bancada.ind_potencia.lbl_valor.text().endswith("W"),
+          "e a potência ao vivo foi atualizada", bancada.ind_potencia.lbl_valor.text())
     cinzas = bancada.pontos_fora.getData()[0]
     checa(cinzas is not None and len(cinzas) > 0,
           "pontos descartados em cinza", f"{len(cinzas)}")

@@ -27,7 +27,7 @@ from utils.pdf_exporter import generate_planck_report
 
 # --- THREAD DE EXPERIMENTO REAL ---
 class ExperimentWorker(QThread):
-    new_data_point = Signal(float, float, float) # Tensão(V), Temperatura(K), Fotocorrente(A)
+    new_data_point = Signal(float, float, float, float)  # V, i_fil, T, I_led
     # Carrega um ResultadoAnalise inteiro: h, incerteza, orçamento, ajuste e
     # máscara de pontos usados não caberiam numa lista de floats.
     finished_exp = Signal(object)
@@ -157,7 +157,7 @@ class ExperimentWorker(QThread):
                 data_u_led.append(u_led_tipo_a)
 
                 # Enviar para a Interface Gráfica
-                self.new_data_point.emit(v_target, t_inst, i_led)
+                self.new_data_point.emit(v_target, i_fil, t_inst, i_led)
                 
             # 3. Finalizar e Desligar Fonte
             if pws: pws.set_output(False)
@@ -357,7 +357,7 @@ class TabExperiment(QWidget):
         layout.addLayout(main_view_layout)
 
 
-    def update_plots(self, v, t, i_led):
+    def update_plots(self, v, i_fil_medido, t, i_led):
         # Atualiza arrays de dados
         self.data_v.append(v)
         self.data_t.append(t)

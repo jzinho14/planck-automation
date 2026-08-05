@@ -1,0 +1,43 @@
+{
+  "esquema": 1,
+  "iniciado_em": "2026-08-05T18:15:08-03:00",
+  "modo": "demonstracao",
+  "instrumentos": {
+    "fonte": "DEMO::PWS4323::SIMULADO",
+    "multimetro": "DEMO::DMM4050::SIMULADO",
+    "limite_corrente_a": 2.0
+  },
+  "perfis": {
+    "led": "Amarelo 590 nm",
+    "filamento": "Padrão do software",
+    "varredura": "Bancada — padrão"
+  },
+  "filamento_medido": {
+    "resistencia_a_frio_ohm": 1.2,
+    "incerteza_resistencia_a_frio_ohm": 0.01,
+    "temperatura_ambiente_c": 25.0,
+    "r0_corrigido_ohm": 1.0608320901707275,
+    "incerteza_r0_ohm": 0.013253959527150201,
+    "alpha_por_kelvin": 0.00523,
+    "beta_por_kelvin2": 7e-07,
+    "resistencia_cabos_ohm": 0.0
+  },
+  "sensor": {
+    "lambda_nm": 590.0,
+    "delta_lambda_nm": 30.0
+  },
+  "varredura": {
+    "tensao_inicial_v": 1.0,
+    "tensao_final_v": 10.0,
+    "passo_v": 0.5,
+    "estabilizacao_ms": 3000.0,
+    "leituras_por_ponto": 1,
+    "temperatura_minima_regressao_k": 1800.0
+  },
+  "ambiente": {
+    "python": "3.13.11",
+    "sistema": "Windows 11",
+    "maquina": "DESKTOP-FSE51F5"
+  },
+  "resultado": null
+}

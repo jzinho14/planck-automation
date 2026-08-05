@@ -50,12 +50,34 @@ checa(all(p.fonte and p.fonte.strip() for p in com_constante_fisica),
       f"{len(com_constante_fisica)} perfis conferidos")
 checa(not any(hasattr(p, "fonte") for p in PADROES["varreduras"]),
       "perfis de varredura não pedem fonte (são escolha operacional)")
+checa(not any(hasattr(p, "fonte") for p in PADROES["completos"]),
+      "nem os perfis completos, que guardam a escolha do operador")
+
+print("\n1b. Perfil completo guarda TODOS os campos da página")
+
+from content.perfis import PerfilCompleto
+completo = PADROES["completos"][0]
+esperados = {"r_frio", "u_r_frio", "t_ambiente", "alpha", "beta", "lambda_nm",
+             "delta_lambda_nm", "r_cabos", "ruido", "v_start", "v_end",
+             "v_step", "delay_ms", "n_leituras", "t_minima"}
+presentes = set(completo.__dataclass_fields__)
+faltando = esperados - presentes
+checa(not faltando, "o perfil completo cobre física, sensor, bancada e varredura",
+      f"{len(esperados)} campos" if not faltando else str(faltando))
+
+mod_perfis.salvar_perfis("completos", list(PADROES["completos"]))
+mod_perfis.acrescentar_perfil("completos", PerfilCompleto(nome="Meu ajuste", v_end=9.0))
+recuperado = mod_perfis.perfil_por_nome("completos", "Meu ajuste")
+checa(recuperado is not None and recuperado.v_end == 9.0,
+      "um perfil personalizado sobrevive ao ciclo de gravação e leitura")
 
 print("\n2. Gravação e releitura")
 
-caminhos = mod_perfis.escrever_padroes_se_ausente()
-checa(len(caminhos) == 4, "os quatro JSONs são materializados",
-      ", ".join(c.name for c in caminhos))
+mod_perfis.escrever_padroes_se_ausente()
+no_disco = {caminho.stem for caminho in _temporaria.glob("*.json")}
+checa(no_disco == set(PADROES),
+      "toda família de perfil acaba com o seu JSON no disco",
+      ", ".join(sorted(no_disco)))
 
 antes = mod_perfis.carregar_perfis("leds")
 depois = mod_perfis.carregar_perfis("leds")

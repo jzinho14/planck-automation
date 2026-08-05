@@ -15,12 +15,16 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QFormLayout, QGroupBox,
                                QHBoxLayout, QInputDialog, QMessageBox)
 from PySide6.QtCore import Signal
 
-from content.perfis import (carregar_perfis, acrescentar_perfil, avisos,
-                            PerfilVarredura)
+from content.perfis import (carregar_perfis, acrescentar_perfil, salvar_perfis,
+                            avisos, PerfilCompleto)
+from core.hardware_manager import preferencias
 from utils.math_models import (corrigir_r0_para_zero_celsius,
                                TEMPERATURA_AMBIENTE_PADRAO,
                                TEMPERATURA_MINIMA_PADRAO)
 from utils.error_models import incerteza_r0_corrigido, INCERTEZA_TEMPERATURA_AMBIENTE
+
+# Nome do perfil completo em uso; o software reabre nele.
+CHAVE_PERFIL_ATIVO = "Parametros/PerfilAtivo"
 
 
 class PainelParametros(QWidget):
@@ -48,8 +52,43 @@ class PainelParametros(QWidget):
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
 
-        # --- Perfis ---
-        grupo_perfis = QGroupBox("Perfis")
+        # --- Perfil completo: o estado inteiro da página ---
+        grupo_completo = QGroupBox("Perfil")
+        forma_completo = QFormLayout()
+
+        self.combo_completo = QComboBox()
+        self.combo_completo.currentIndexChanged.connect(self._aplicar_completo)
+
+        linha_botoes = QWidget()
+        botoes = QHBoxLayout(linha_botoes)
+        botoes.setContentsMargins(0, 0, 0, 0)
+        self.btn_salvar = QPushButton("💾 Salvar como…")
+        self.btn_salvar.setToolTip(
+            "Guarda TODOS os campos desta página com um nome.\n"
+            "Um nome existente é substituído.")
+        self.btn_salvar.clicked.connect(self._salvar_completo)
+        self.btn_excluir = QPushButton("🗑 Excluir")
+        self.btn_excluir.clicked.connect(self._excluir_completo)
+        botoes.addWidget(self.btn_salvar)
+        botoes.addWidget(self.btn_excluir)
+        botoes.addStretch()
+
+        forma_completo.addRow("Perfil ativo:", self.combo_completo)
+        forma_completo.addRow("", linha_botoes)
+        forma_completo.addRow("", QLabel(
+            "Guarda todos os campos abaixo. O software reabre no último "
+            "perfil usado."))
+
+        self.lbl_avisos = QLabel()
+        self.lbl_avisos.setWordWrap(True)
+        self.lbl_avisos.setStyleSheet("color: #ffb74d; font-size: 11px;")
+        forma_completo.addRow("", self.lbl_avisos)
+
+        grupo_completo.setLayout(forma_completo)
+        layout.addWidget(grupo_completo)
+
+        # --- Atalhos de catálogo: preenchem parte dos campos ---
+        grupo_perfis = QGroupBox("Atalhos de catálogo (opcionais)")
         form_perfis = QFormLayout()
 
         self.combo_led = QComboBox()
@@ -59,18 +98,15 @@ class PainelParametros(QWidget):
         self.combo_filamento.currentIndexChanged.connect(self._aplicar_filamento)
         self.combo_varredura.currentIndexChanged.connect(self._aplicar_varredura)
 
+        for combo in (self.combo_led, self.combo_filamento, self.combo_varredura):
+            combo.setToolTip("Preenche alguns campos. Você pode editar "
+                             "qualquer valor à mão depois.")
+
         form_perfis.addRow("LED (sensor):", self.combo_led)
         form_perfis.addRow("Filamento:", self.combo_filamento)
         form_perfis.addRow("Varredura:", self.combo_varredura)
-
-        self.btn_salvar_varredura = QPushButton("💾 Salvar varredura atual como perfil")
-        self.btn_salvar_varredura.clicked.connect(self._salvar_varredura)
-        form_perfis.addRow("", self.btn_salvar_varredura)
-
-        self.lbl_avisos = QLabel()
-        self.lbl_avisos.setWordWrap(True)
-        self.lbl_avisos.setStyleSheet("color: #ffb74d; font-size: 11px;")
-        form_perfis.addRow("", self.lbl_avisos)
+        form_perfis.addRow("", QLabel(
+            "São só pontos de partida — todo campo continua editável à mão."))
 
         grupo_perfis.setLayout(form_perfis)
         layout.addWidget(grupo_perfis)
@@ -167,7 +203,14 @@ class PainelParametros(QWidget):
 
     # -- perfis --------------------------------------------------------------
 
-    def _recarregar_perfis(self):
+    def _recarregar_perfis(self, selecionar: str = None):
+        """
+        Repovoa as caixas de perfil.
+
+        A ordem importa: os atalhos de catálogo são aplicados PRIMEIRO (eles
+        preenchem parte dos campos), e o perfil completo por ÚLTIMO, para que
+        o que o operador salvou prevaleça sobre os presets.
+        """
         for combo, tipo in ((self.combo_led, "leds"),
                             (self.combo_filamento, "filamentos"),
                             (self.combo_varredura, "varreduras")):
@@ -177,16 +220,21 @@ class PainelParametros(QWidget):
                 combo.addItem(perfil.rotulo, perfil)
             combo.blockSignals(False)
 
-        # Para a simulação, começar pelo preset de varredura próprio dela.
-        if self.modo == "simulacao":
-            for i in range(self.combo_varredura.count()):
-                if "Simula" in self.combo_varredura.itemData(i).nome:
-                    self.combo_varredura.setCurrentIndex(i)
-                    break
-
         self._aplicar_led()
         self._aplicar_filamento()
         self._aplicar_varredura()
+
+        # Perfil completo: o último usado, salvo em QSettings.
+        alvo = selecionar or preferencias().value(CHAVE_PERFIL_ATIVO, "")
+        self.combo_completo.blockSignals(True)
+        self.combo_completo.clear()
+        completos = carregar_perfis("completos")
+        for perfil in completos:
+            self.combo_completo.addItem(perfil.rotulo, perfil)
+        indice = next((i for i, p in enumerate(completos) if p.nome == alvo), 0)
+        self.combo_completo.setCurrentIndex(indice)
+        self.combo_completo.blockSignals(False)
+        self._aplicar_completo()
 
         problemas = avisos()
         self.lbl_avisos.setText(
@@ -224,33 +272,101 @@ class PainelParametros(QWidget):
         self.combo_varredura.setToolTip(perfil.observacao)
         self.parametros_alterados.emit()
 
-    def _salvar_varredura(self):
+    # -- perfil completo -----------------------------------------------------
+
+    def _campos_do_perfil(self, perfil) -> None:
+        """Escreve nos campos os valores de um PerfilCompleto."""
+        pares = [
+            (self.input_r_frio, perfil.r_frio), (self.input_u_r_frio, perfil.u_r_frio),
+            (self.input_t_ambiente, perfil.t_ambiente),
+            (self.input_alpha, perfil.alpha), (self.input_beta, perfil.beta),
+            (self.input_lambda, perfil.lambda_nm),
+            (self.input_delta_lambda, perfil.delta_lambda_nm),
+            (self.input_v_start, perfil.v_start), (self.input_v_end, perfil.v_end),
+            (self.input_v_step, perfil.v_step), (self.input_delay, perfil.delay_ms),
+            (self.input_t_minima, perfil.t_minima),
+        ]
+        if hasattr(self, "input_r_cabos"):
+            pares.append((self.input_r_cabos, perfil.r_cabos))
+        if hasattr(self, "input_noise"):
+            pares.append((self.input_noise, perfil.ruido))
+        if hasattr(self, "input_n_leituras"):
+            pares.append((self.input_n_leituras, perfil.n_leituras))
+
+        for campo, valor in pares:
+            campo.setText(f"{valor:g}")
+
+    def _perfil_dos_campos(self, nome: str) -> PerfilCompleto:
+        """Monta um PerfilCompleto com o que está na tela."""
+        def numero(campo, padrao=0.0):
+            try:
+                return float(campo.text())
+            except (ValueError, AttributeError):
+                return padrao
+
+        return PerfilCompleto(
+            nome=nome,
+            r_frio=numero(self.input_r_frio, 1.2),
+            u_r_frio=numero(self.input_u_r_frio, 0.01),
+            t_ambiente=numero(self.input_t_ambiente, 25.0),
+            alpha=numero(self.input_alpha, 5.23e-3),
+            beta=numero(self.input_beta, 7.0e-7),
+            lambda_nm=numero(self.input_lambda, 590.0),
+            delta_lambda_nm=numero(self.input_delta_lambda, 30.0),
+            r_cabos=numero(getattr(self, "input_r_cabos", None), 0.0),
+            ruido=numero(getattr(self, "input_noise", None), 0.05),
+            v_start=numero(self.input_v_start, 1.0),
+            v_end=numero(self.input_v_end, 10.0),
+            v_step=numero(self.input_v_step, 0.5),
+            delay_ms=numero(self.input_delay, 3000.0),
+            n_leituras=int(numero(getattr(self, "input_n_leituras", None), 1)),
+            t_minima=numero(self.input_t_minima, 1800.0),
+            observacao="Salvo pelo operador.")
+
+    def _aplicar_completo(self):
+        perfil = self.combo_completo.currentData()
+        if perfil is None:
+            return
+        self._campos_do_perfil(perfil)
+        self.combo_completo.setToolTip(perfil.observacao)
+        preferencias().setValue(CHAVE_PERFIL_ATIVO, perfil.nome)
+        self._atualizar_r0()
+        self.parametros_alterados.emit()
+
+    def _salvar_completo(self):
+        atual = self.combo_completo.currentText().split("  (")[0]
         nome, confirmou = QInputDialog.getText(
-            self, "Salvar perfil de varredura",
-            "Nome do perfil (um nome existente será substituído):")
+            self, "Salvar perfil",
+            "Nome (um nome existente será substituído):", text=atual)
         if not confirmou or not nome.strip():
             return
         try:
-            perfil = PerfilVarredura(
-                nome=nome.strip(),
-                v_start=float(self.input_v_start.text()),
-                v_end=float(self.input_v_end.text()),
-                v_step=float(self.input_v_step.text()),
-                delay_ms=float(self.input_delay.text()),
-                n_leituras=int(float(getattr(self, "input_n_leituras", None).text()))
-                if hasattr(self, "input_n_leituras") else 1,
-                t_minima=float(self.input_t_minima.text()),
-                observacao="Salvo pelo operador.")
-            caminho = acrescentar_perfil("varreduras", perfil)
+            perfil = self._perfil_dos_campos(nome.strip())
+            caminho = acrescentar_perfil("completos", perfil)
         except (ValueError, OSError) as erro:
             QMessageBox.warning(self, "Não foi possível salvar", str(erro))
             return
+
+        self._recarregar_perfis(selecionar=perfil.nome)
+        QMessageBox.information(
+            self, "Perfil salvo",
+            f"'{perfil.nome}' guardado com TODOS os campos desta página.\n\n{caminho}")
+
+    def _excluir_completo(self):
+        perfil = self.combo_completo.currentData()
+        if perfil is None:
+            return
+        if self.combo_completo.count() <= 1:
+            QMessageBox.warning(self, "Não é possível excluir",
+                                "É o único perfil; crie outro antes de apagar este.")
+            return
+        resposta = QMessageBox.question(
+            self, "Excluir perfil", f"Apagar o perfil '{perfil.nome}'?")
+        if resposta != QMessageBox.Yes:
+            return
+        restantes = [p for p in carregar_perfis("completos") if p.nome != perfil.nome]
+        salvar_perfis("completos", restantes)
         self._recarregar_perfis()
-        for i in range(self.combo_varredura.count()):
-            if self.combo_varredura.itemData(i).nome == perfil.nome:
-                self.combo_varredura.setCurrentIndex(i)
-                break
-        QMessageBox.information(self, "Perfil salvo", f"Gravado em:\n{caminho}")
 
     # -- leitura -------------------------------------------------------------
 

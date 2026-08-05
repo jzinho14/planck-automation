@@ -18,14 +18,13 @@ from PySide6.QtCore import Qt, Signal
 
 from qfluentwidgets import (HeaderCardWidget, BodyLabel, StrongBodyLabel,
                             LineEdit, EditableComboBox, PushButton, PrimaryPushButton,
-                            SwitchButton, DoubleSpinBox, InfoBar, InfoBarPosition,
+                            SwitchButton, InfoBar, InfoBarPosition,
                             FluentIcon, CaptionLabel)
 
 from core.hardware_manager import (preferencias, CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM,
                                    CHAVE_IP_DMM, CHAVE_PORTA_DMM,
-                                   CHAVE_LIMITE_CORRENTE, IP_DMM_PADRAO,
-                                   PORTA_DMM_PADRAO, LIMITE_CORRENTE_PADRAO)
+                                   IP_DMM_PADRAO, PORTA_DMM_PADRAO)
 from core.mock_hardware import bancada_simulada
 from utils.math_models import TEMPERATURA_AMBIENTE_PADRAO
 
@@ -65,7 +64,6 @@ class PaginaConexao(QWidget):
         layout.setSpacing(14)
 
         layout.addWidget(self._cartao_instrumentos())
-        layout.addWidget(self._cartao_seguranca())
         layout.addWidget(self._cartao_demonstracao())
         layout.addStretch()
 
@@ -126,31 +124,6 @@ class PaginaConexao(QWidget):
         cartao.viewLayout.addWidget(corpo)
         return cartao
 
-    def _cartao_seguranca(self) -> HeaderCardWidget:
-        cartao = HeaderCardWidget(self)
-        cartao.setTitle("Segurança da bancada")
-
-        corpo = QWidget()
-        forma = QFormLayout(corpo)
-
-        # B4: limite de corrente configurável, com faixa restrita ao que a
-        # fonte entrega (0–3 A) e passo fino.
-        self.spin_limite = DoubleSpinBox()
-        self.spin_limite.setRange(0.1, 3.0)
-        self.spin_limite.setSingleStep(0.1)
-        self.spin_limite.setDecimals(2)
-        self.spin_limite.setSuffix(" A")
-        self.spin_limite.setMaximumWidth(160)
-
-        forma.addRow(StrongBodyLabel("Limite de corrente da fonte:"), self.spin_limite)
-        forma.addRow("", CaptionLabel(
-            "É a proteção do filamento: a fonte não entrega mais que isto, "
-            "entrando em modo corrente constante. O valor usado fica gravado "
-            "nos metadados de cada coleta."))
-
-        cartao.viewLayout.addWidget(corpo)
-        return cartao
-
     def _cartao_demonstracao(self) -> HeaderCardWidget:
         cartao = HeaderCardWidget(self)
         cartao.setTitle("Modo demonstração")
@@ -186,13 +159,10 @@ class PaginaConexao(QWidget):
         self.switch_demo.checkedChanged.connect(self.alternar_demonstracao)
         self.input_ip.editingFinished.connect(self.gravar_endereco_dmm)
         self.input_porta.editingFinished.connect(self.gravar_endereco_dmm)
-        self.spin_limite.valueChanged.connect(self.gravar_limite_corrente)
 
     def _carregar_preferencias(self):
         self.input_ip.setText(self.settings.value(CHAVE_IP_DMM, IP_DMM_PADRAO))
         self.input_porta.setText(self.settings.value(CHAVE_PORTA_DMM, PORTA_DMM_PADRAO))
-        self.spin_limite.setValue(
-            float(self.settings.value(CHAVE_LIMITE_CORRENTE, LIMITE_CORRENTE_PADRAO)))
 
         demo = self.settings.value(CHAVE_MODO_DEMONSTRACAO, False, type=bool)
         self.switch_demo.setChecked(demo)
@@ -203,9 +173,6 @@ class PaginaConexao(QWidget):
         porta = self.input_porta.text().strip() or PORTA_DMM_PADRAO
         self.settings.setValue(CHAVE_IP_DMM, ip)
         self.settings.setValue(CHAVE_PORTA_DMM, porta)
-
-    def gravar_limite_corrente(self, valor: float):
-        self.settings.setValue(CHAVE_LIMITE_CORRENTE, valor)
 
     def recurso_de(self, combo) -> str:
         texto = combo.currentText()

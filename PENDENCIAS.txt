@@ -1,0 +1,214 @@
+================================================================================
+PENDENCIAS E TRATATIVAS - Planck Automation
+================================================================================
+Itens que precisam de decisao ou verificacao HUMANA. Nada aqui bloqueia o
+desenvolvimento: sao pontos deixados de proposito em aberto, com um padrao
+seguro escolhido, para serem conferidos depois sem congelar a reforma.
+
+Formato de cada item:
+  SITUACAO ATUAL  - o que o software faz hoje
+  POR QUE ESTA ASSIM - a razao de nao ter sido decidido sozinho
+  O QUE VERIFICAR - a acao concreta esperada de voce
+  IMPACTO SE MUDAR - o que acontece ao alterar
+  COMO ALTERAR    - onde mexer
+
+Ultima atualizacao: 05/08/2026
+
+================================================================================
+P1 - [A3] Coeficientes de resistividade do tungstenio: qual par adotar?
+================================================================================
+STATUS: ABERTO - aguardando verificacao
+Origem: CLAUDE.md secao 4, achado A3. Implementado na Fase 2.
+
+SITUACAO ATUAL
+  O software oferece dois presets em Software/content/filamentos.py:
+
+    (padrao) "Padrao do software"   alpha = 5.23e-3 K^-1   beta = 7.0e-7 K^-2
+             "Artigo RBEF / PHYWE"  alpha = 4.82e-3 K^-1   beta = 6.76e-7 K^-2
+
+  O padrao continua sendo o primeiro par.
+
+POR QUE ESTA ASSIM
+  Nao consegui estabelecer a procedencia do par 5.23e-3 / 7.0e-7. Ele nao vem
+  do artigo de Cavalcante & Haag, que usa os valores PHYWE. Mas e com ele que
+  TODAS as 52 coletas em Software/data_backup/ foram processadas.
+
+  Trocar o padrao por conta propria teria dois efeitos ruins: mudaria
+  silenciosamente o resultado de medidas futuras, e tornaria os dados
+  historicos incomparaveis com os novos. Preferi expor a escolha em vez de
+  decidir no seu lugar.
+
+O QUE VERIFICAR
+  De onde vieram 5.23e-3 e 7.0e-7? Possibilidades a checar:
+    - manual do equipamento didatico usado na bancada;
+    - alguma tabela de referencia de tungstenio (Roeser & Wensel, CRC, etc.);
+    - valor ajustado empiricamente numa calibracao anterior;
+    - simplesmente herdado de outro codigo, sem fonte.
+
+  Se houver fonte, registrar no campo "fonte" do preset e este item se encerra.
+  Se NAO houver fonte, a recomendacao e adotar o par do artigo como padrao,
+  porque ele e citavel e o experimento inteiro se baseia naquele artigo.
+
+IMPACTO SE MUDAR
+  Os coeficientes entram direto no calculo da temperatura, e a temperatura
+  entra em h. A diferenca entre os dois pares e de ~8% em alpha e ~3% em beta.
+  Nao e desprezivel. Vale reprocessar um CSV historico com os dois pares e
+  comparar antes de decidir.
+
+COMO ALTERAR
+  Software/content/filamentos.py -- a ordem da lista PRESETS_FILAMENTO define
+  o padrao (PRESET_PADRAO = PRESETS_FILAMENTO[0]). Basta reordenar.
+  Preencher tambem o campo "fonte" do preset escolhido.
+
+================================================================================
+P2 - [Fase 3] Teoria de erros: revisao pelo orientador
+================================================================================
+STATUS: ABERTO - aguardando revisao academica
+Origem: pedido do usuario, 05/08/2026.
+
+SITUACAO ATUAL
+  A Fase 3 (teoria de erros / propagacao de incertezas) sera implementada com
+  TODA a teoria e todos os calculos explicitos e rastreaveis, justamente para
+  poder ser apresentada e criticada.
+
+POR QUE ESTA ASSIM
+  O usuario vai discutir a abordagem com o orientador antes de considera-la
+  fechada. O objetivo do codigo e da documentacao nao e so funcionar: e deixar
+  visivel QUAL modelo de erro foi assumido, para que o orientador possa apontar
+  o que falta ou o que esta mal justificado.
+
+O QUE VERIFICAR (levar ao orientador)
+  Cada escolha abaixo e uma decisao que pode ser contestada:
+
+  1. Classificacao GUM Tipo A / Tipo B
+     - Tipo A (estatistico): repeticao de leituras por ponto.
+     - Tipo B (instrumental): vem do datasheet.
+     Verificar se o orientador aceita essa separacao e se quer N repeticoes
+     por ponto (hoje o software mede uma vez por tensao).
+
+  2. Distribuicao assumida para as especificacoes de datasheet
+     Especificacao do tipo +/-(% da leitura + % da faixa) tratada como limite
+     de uma distribuicao RETANGULAR, logo u = a/raiz(3).
+     Verificar: e a convencao aceita? Ou o orientador prefere tratar como
+     limite de confianca com outro fator?
+
+  3. Largura espectral do LED (delta lambda)
+     O artigo cita 25-35 nm de meia largura. Tratamento previsto: retangular,
+     u_lambda = delta_lambda / raiz(3).
+     Verificar: esse e o tratamento correto para banda espectral de LED? Essa
+     e a incerteza DOMINANTE em h (~3-5%), entao a escolha importa muito.
+
+  4. Regressao ponderada
+     Previsto: minimos quadrados ponderados (WLS) com peso 1/u_y^2, ou ODR
+     (scipy.odr) que aceita erro em x E em y -- porque u_x = u_T/T^2 nao e
+     desprezivel.
+     Verificar: WLS simples basta, ou o orientador exige ODR? Como reportar o
+     chi-quadrado reduzido?
+
+  5. Fator de abrangencia k
+     Previsto: k = 2, aproximadamente 95% de confianca, reportando
+     h = (valor +/- U), U = k*u_c.
+     Verificar: k=2 fixo, ou t de Student com os graus de liberdade efetivos
+     (Welch-Satterthwaite)? O segundo e mais rigoroso e mais trabalhoso.
+
+  6. Correlacoes ignoradas
+     A propagacao prevista assume variaveis INDEPENDENTES. Na pratica V e i
+     vem do mesmo instrumento e podem ser correlacionadas.
+     Verificar: e aceitavel ignorar? Se nao, precisa de matriz de covariancia.
+
+  7. Erros sistematicos nao incluidos na barra de incerteza
+     Emissividade do tungstenio (corpo cinza, nao negro), reflexoes na
+     montagem, alinhamento LED-filamento, temperatura nao uniforme ao longo do
+     filamento. Nenhum entra no orcamento previsto.
+     Verificar: quais o orientador considera obrigatorios?
+
+  8. Valor de referencia para o "erro relativo"
+     Hoje o software compara com o h da CODATA (valor exato por definicao do
+     SI). Verificar se o orientador quer manter esse enquadramento ou se
+     prefere reportar so o valor medido com sua incerteza, sem "erro".
+
+ONDE ESTARA A TEORIA
+  - Software/utils/error_models.py -- implementacao, com a formula de cada
+    passo em comentario/docstring.
+  - Documentacao/manual_tecnico.tex -- deducao completa da cadeia de
+    propagacao, com as equacoes numeradas.
+  - A UI mostrara um "Orcamento de incertezas": a contribuicao de cada fonte
+    em %, para ver de imediato quem domina.
+
+IMPACTO SE MUDAR
+  Alto na apresentacao do resultado, NULO na coleta. A cadeia de propagacao e
+  calculada em cima dos mesmos dados; mudar uma escolha muda a barra de erro,
+  nao a medida.
+
+================================================================================
+P3 - [B4] Limite de corrente da fonte esta fixo no codigo
+================================================================================
+STATUS: ABERTO - decisao de bancada
+Origem: CLAUDE.md secao 5, bug B4.
+
+SITUACAO ATUAL
+  ExperimentWorker chama configure_safety_limits(max_current=2.0), com um
+  comentario ao lado dizendo 1.5 A. O comentario e o codigo discordam, e o
+  valor nao e editavel pela interface.
+
+O QUE VERIFICAR
+  Qual e o limite CORRETO para o filamento que esta na bancada? 1.5 A ou
+  2.0 A? Esse numero e uma protecao fisica: errar para mais pode queimar o
+  filamento.
+
+  Depois de definido, o valor vira campo editavel na aba de Ligacoes, com o
+  default seguro que voce indicar.
+
+IMPACTO SE MUDAR
+  Direto na seguranca da montagem. Por isso nao alterei o valor por conta
+  propria -- so registrei a inconsistencia.
+
+COMO ALTERAR
+  Software/ui/tabs/tab_experiment.py, dentro de ExperimentWorker.run().
+  Previsto para a Fase 5 (nova interface), junto com o campo de IP do DMM.
+
+================================================================================
+P4 - [B5] IP do multimetro fixo no codigo
+================================================================================
+STATUS: ABERTO - baixa prioridade
+Origem: CLAUDE.md secao 5, bug B5.
+
+SITUACAO ATUAL
+  O endereco 192.168.1.107:3490 esta escrito em ScannerThread e em
+  Tests/test_connection.py.
+
+  MITIGACAO JA EXISTENTE: a caixa de selecao do multimetro e editavel. Se o
+  aparelho mudar de IP, da para digitar o endereco completo na interface e
+  validar; o valor fica salvo para as proximas sessoes. Ou seja, isso hoje
+  incomoda mas nao impede o uso.
+
+O QUE VERIFICAR
+  Nada a decidir. So confirmar se o IP atual da bancada continua sendo esse,
+  para que o valor padrao da varredura seja util.
+
+COMO ALTERAR
+  Vira campo de configuracao na Fase 5.
+
+================================================================================
+P5 - Metadados do experimento em JSON
+================================================================================
+STATUS: ABERTO - previsto para a Fase 4
+Origem: CLAUDE.md secao 8; promessa da especificacao original nunca cumprida.
+
+SITUACAO ATUAL
+  Cada coleta gera so o CSV. Os parametros usados (R0, coeficientes, lambda,
+  faixa de varredura, corte de temperatura) NAO sao gravados junto -- ficam so
+  no relatorio PDF, se ele for gerado.
+
+  Consequencia pratica: um CSV antigo nao diz com quais parametros foi
+  processado. Foi exatamente por isso que precisei DEDUZIR, a partir dos
+  numeros, que as coletas historicas usaram R0 = 0.42 ohm.
+
+O QUE VERIFICAR
+  Nada a decidir agora. Registrado para nao se perder: a partir da Fase 4,
+  cada coleta grava um .json ao lado do .csv com todos os parametros e
+  resultados, e o problema acima deixa de existir para dados novos.
+
+================================================================================
+FIM
+================================================================================

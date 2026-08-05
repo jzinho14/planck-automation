@@ -31,6 +31,11 @@ espera de estabilização térmica por ponto, leitura de I_filamento (fonte) e I
 cálculo de R = V/I → T, gravação incremental em `data_backup/*.csv`, regressão linear
 ao final → h, erro relativo e R².
 
+> **Pendências humanas ficam em `PENDENCIAS.txt`** (raiz). São itens que
+> precisam de decisão ou verificação do usuário — nenhum deles bloqueia o
+> desenvolvimento. Ao deixar algo em aberto de propósito, registre lá em vez de
+> travar a fase.
+
 ## 2. Regras para o Claude Code
 
 1. **O software funciona na bancada real.** Nunca quebrar o fluxo de coleta existente.
@@ -46,6 +51,12 @@ ao final → h, erro relativo e R².
    deve ser zerada e desligada (`turn_off_safely`). Não remover esses guards.
 6. Rodar: `cd Software && python main.py` (venv em `Software/.venv`).
    Dependências: `Software/requirements.txt`.
+7. **Documentação LaTeX:** editar os `.tex` à vontade, mas **não compilar a cada
+   edição** — compilar só no fim do trabalho, uma vez, antes de commitar.
+8. **Teoria explícita.** O usuário vai apresentar a fundamentação ao orientador.
+   Toda escolha de modelagem (especialmente de incerteza) deve estar visível e
+   justificada no código e em `Documentacao/manual_tecnico.tex`, com as
+   equações numeradas — não basta funcionar, tem que ser auditável.
 
 ## 3. Arquitetura atual (mapa real do código)
 

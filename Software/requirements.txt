@@ -1,0 +1,15 @@
+# Interface Gráfica
+PySide6>=6.8.0
+
+# Comunicação com Instrumentos
+PyVISA>=1.14.1
+
+# Processamento e Matemática
+numpy>=1.26.4
+pandas>=2.2.1
+
+# Visualização de Dados (Alta performance em tempo real)
+pyqtgraph>=0.13.3
+
+# Geração de Relatórios PDF
+reportlab>=4.1.0

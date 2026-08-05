@@ -1,0 +1,26 @@
+# Ambientes virtuais (não versionar — recriar via requirements.txt)
+.venv/
+venv/
+env/
+
+# Bytecode e cache do Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Empacotamento (PyInstaller / Inno Setup)
+build/
+dist/
+*.spec
+Output/
+
+# Artefatos temporários gerados pela UI (captura dos gráficos para o PDF)
+temp_graph.png
+temp_bancada_graph.png
+*.pdf.tmp
+
+# Configurações de IDE / SO
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

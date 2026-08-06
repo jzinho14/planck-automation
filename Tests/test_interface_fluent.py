@@ -11,7 +11,7 @@ import json
 import os
 import sys
 
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QScrollArea
 from PySide6.QtCore import QTimer, Qt
 from PySide6.QtGui import QColor
 
@@ -222,12 +222,37 @@ if hasattr(dicas, "setColorScheme"):
           "widgets Qt comuns seguem o tema do software, não o do Windows",
           str(dicas.colorScheme()))
 
+
+# A regressão que motivou este bloco: o esquema de cor era aplicado DEPOIS de
+# setTheme, e cada repolimento congelava a paleta vigente. Os widgets nativos
+# ficavam uma troca ATRASADOS — lista de coletas preta no tema claro, painel de
+# referências branco no escuro. Aqui comparamos a paleta de widgets nativos de
+# tres paginas diferentes com a da aplicacao, nos dois temas.
+def conferir_paletas(rotulo):
+    esperada = app.palette().base().color().name()
+    # Só widgets que dependem da paleta NATIVA. O registro da coleta tem folha
+    # de estilo própria (superfície recuada, de propósito) e é conferido acima.
+    nativos = {
+        "lista de coletas": janela.pagina_analise.lista,
+        "campo de parâmetro": painel_cfg.input_r_frio,
+        "rolagem de referências": janela.pagina_referencias.conteudo.findChild(
+            QScrollArea).viewport(),
+    }
+    for nome, widget in nativos.items():
+        obtida = widget.palette().base().color().name()
+        checa(obtida == esperada, f"{rotulo}: {nome} usa a paleta em vigor",
+              f"{obtida} vs {esperada}")
+
+
+conferir_paletas("escuro")
+
 janela.alternar_tema()
 app.processEvents()
 if hasattr(dicas, "setColorScheme"):
     checa(dicas.colorScheme() == Qt.ColorScheme.Light,
           "e voltam junto com ele")
 checa(paleta.nome_tema() == "claro", "e volta ao claro no segundo clique")
+conferir_paletas("claro")
 
 print("\n4. B5 — endereço do multímetro configurável")
 

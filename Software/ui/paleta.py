@@ -107,20 +107,32 @@ def escuro() -> bool:
     return nome_tema() == "escuro"
 
 
-def aplicar_tema(nome: str = None) -> str:
+def aplicar_tema(nome: str = None, guardar: bool = True) -> str:
     """
     Aplica o tema à biblioteca Fluent e ao pyqtgraph, e o guarda.
 
     Chamada uma vez na abertura da janela e a cada alternância. O pyqtgraph
     precisa entrar aqui porque suas opções globais só valem para gráficos
     criados DEPOIS — os já existentes são repintados por `pintar_grafico`.
+
+    `guardar=False` aplica sem mexer na preferência: é o caso da janela
+    clássica, que é escura por construção e não deve arrastar a escolha do
+    operador na janela nova junto com ela.
     """
     nome = nome if nome in _PALETAS else nome_tema()
-    preferencias().setValue(CHAVE_TEMA, nome)
+    if guardar:
+        preferencias().setValue(CHAVE_TEMA, nome)
 
+    # ORDEM IMPORTA, e custou uma sessão descobrir: o esquema de cor vem
+    # PRIMEIRO. `setTheme` repolimenta todos os widgets da biblioteca, e cada
+    # repolimento congela a paleta da aplicação vigente naquele instante. Com o
+    # esquema aplicado depois, os widgets nativos ficavam uma troca ATRASADOS —
+    # a lista de coletas aparecia preta no tema claro e o painel de referências
+    # branco no escuro. Aplicar o esquema antes faz o repolimento já pegar a
+    # paleta certa.
+    _alinhar_widgets_nativos(nome)
     setTheme(Theme.DARK if nome == "escuro" else Theme.LIGHT)
     setThemeColor(ACENTO[nome])
-    _alinhar_widgets_nativos(nome)
 
     pg.setConfigOption('background', _PALETAS[nome]["grafico_fundo"])
     pg.setConfigOption('foreground', _PALETAS[nome]["grafico_tinta"])

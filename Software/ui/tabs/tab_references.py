@@ -7,12 +7,31 @@ from PySide6.QtCore import Qt, QUrl
 from PySide6.QtGui import QDesktopServices
 
 from content.referencias import REFERENCIAS, PASTA_DOCS, Referencia
+from ui import paleta
 
 
 class TabReferences(QWidget):
     def __init__(self):
         super().__init__()
+        self._links = []
         self.setup_ui()
+        self.repintar_tema()
+
+    def repintar_tema(self):
+        """
+        Recolore o que não segue a paleta do sistema: links e rodapé.
+
+        Texto rico do Qt usa a cor de link do estilo, que no tema escuro sai
+        azul-marinho sobre fundo escuro — ilegível. Aqui a cor do link vem da
+        paleta, então acompanha o tema nos dois sentidos.
+        """
+        for etiqueta, url in self._links:
+            etiqueta.setText(
+                f'<b>Caminho oficial:</b> '
+                f'<a href="{url}" style="color:{paleta.cor("fotocorrente")};">'
+                f'{url}</a>')
+        self.rodape.setStyleSheet(
+            f"color: {paleta.cor('tinta_fraca')}; font-size: 11px;")
 
     def setup_ui(self):
         layout = QVBoxLayout(self)
@@ -43,14 +62,13 @@ class TabReferences(QWidget):
         area.setWidget(conteudo)
         layout.addWidget(area)
 
-        rodape = QLabel(
+        self.rodape = QLabel(
             "Os PDFs da Tektronix guardados em Docs/ foram conferidos por MD5 "
             "contra o arquivo servido por download.tek.com e são idênticos. "
             "O artigo do RBEF é de acesso aberto."
         )
-        rodape.setWordWrap(True)
-        rodape.setStyleSheet("color: #a0a0a0; font-size: 11px;")
-        layout.addWidget(rodape)
+        self.rodape.setWordWrap(True)
+        layout.addWidget(self.rodape)
 
     def _construir_ficha(self, ref: Referencia) -> QGroupBox:
         caixa = QGroupBox(ref.titulo)
@@ -80,13 +98,13 @@ class TabReferences(QWidget):
             caixa_layout.addWidget(trechos)
 
         # Caminho oficial — clicável, e também visível como texto para citação.
-        oficial = QLabel(
-            f'<b>Caminho oficial:</b> <a href="{ref.url_documento}">{ref.url_documento}</a>'
-        )
+        # O texto é montado em `repintar_tema`, que sabe a cor de link do tema.
+        oficial = QLabel()
         oficial.setWordWrap(True)
         oficial.setTextFormat(Qt.RichText)
         oficial.setTextInteractionFlags(Qt.TextBrowserInteraction)
         oficial.setOpenExternalLinks(True)
+        self._links.append((oficial, ref.url_documento))
         caixa_layout.addWidget(oficial)
 
         botoes = QHBoxLayout()

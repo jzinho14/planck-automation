@@ -83,6 +83,9 @@ class PaginaReferencias(QWidget):
         self.conteudo = TabReferences()
         layout.addWidget(self.conteudo)
 
+    def repintar_tema(self):
+        self.conteudo.repintar_tema()
+
 
 class JanelaPlanck(FluentWindow):
     """Janela principal: navegação lateral, cabeçalho de estado e status."""
@@ -320,7 +323,7 @@ class JanelaPlanck(FluentWindow):
         self._atualizar_dica_tema()
         for pagina in (self.pagina_simulacao, self.pagina_bancada,
                        self.pagina_analise, self.pagina_parametros,
-                       self.pagina_conexao):
+                       self.pagina_conexao, self.pagina_referencias):
             repintar = getattr(pagina, "repintar_tema", None)
             if callable(repintar):
                 repintar()

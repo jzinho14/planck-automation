@@ -28,8 +28,13 @@ def main() -> int:
     if os.environ.get("PLANCK_UI", "").lower() == "classica":
         from ui.main_window import MainWindow
         from ui.theme import DARK_THEME
+        from ui import paleta
         app.setStyle("Fusion")
         app.setStyleSheet(DARK_THEME)
+        # A janela clássica é sempre escura. A aba de Referências, que as duas
+        # janelas partilham, tira as cores de `paleta` — sem isto ela pintaria
+        # links e rodapé com as cores do tema claro sobre o fundo escuro.
+        paleta.aplicar_tema("escuro", guardar=False)
         janela = MainWindow()
     else:
         from ui.janela_fluent import JanelaPlanck

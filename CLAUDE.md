@@ -459,6 +459,16 @@ profiles/
        Numa máquina com Windows escuro, a página de Parâmetros (feita de
        `QLineEdit`/`QGroupBox`) ficava preta com o tema claro escolhido.
        `paleta._alinhar_widgets_nativos` fixa `styleHints().setColorScheme`.
+     - ⚠ **A ORDEM em `aplicar_tema` importa:** o esquema de cor vem ANTES de
+       `setTheme`. `setTheme` repolimenta todos os widgets da biblioteca, e
+       cada repolimento congela a paleta da aplicação daquele instante — com o
+       esquema aplicado depois, os widgets nativos ficavam UMA TROCA ATRASADOS:
+       lista de coletas preta no tema claro, painel de Referências branco no
+       escuro. `test_interface_fluent` compara a paleta de widgets nativos de
+       três páginas com a da aplicação, nos dois temas, para travar isso.
+     - Texto rico do Qt (`QLabel` com `<a href>`) usa a cor de link do estilo,
+       que no escuro sai azul-marinho sobre fundo escuro. A aba de Referências
+       monta os links com a cor da paleta em `repintar_tema`.
      - Painel de resultado virou painel de indicadores: `CartaoDestaque` com h em
        corpo grande e centralizado + 4 `CartaoMetrica` coloridos + orçamento.
        O erro vs CODATA e o R² **mudam de cor conforme o valor** (cortes em

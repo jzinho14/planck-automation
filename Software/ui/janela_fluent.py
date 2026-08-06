@@ -23,11 +23,10 @@ from PySide6.QtGui import QCloseEvent
 from PySide6.QtCore import Qt, QEvent, QTimer
 
 from qfluentwidgets import (FluentWindow, FluentIcon, NavigationItemPosition,
-                            BodyLabel, CaptionLabel, StrongBodyLabel,
-                            setTheme, Theme, setThemeColor, ScrollArea,
-                            HeaderCardWidget)
+                            CaptionLabel, ScrollArea, TransparentToolButton)
 
 from core.hardware_manager import HardwareManager
+from ui import paleta
 from ui.components.painel_parametros import PainelParametros
 from ui.paginas.pagina_conexao import PaginaConexao
 from ui.paginas.paginas_coleta import PaginaSimulacao, PaginaBancada
@@ -70,6 +69,9 @@ class PaginaParametros(QWidget):
         area.setWidget(conteudo)
         layout.addWidget(area)
 
+    def repintar_tema(self):
+        self.painel.repintar_tema()
+
 
 class PaginaReferencias(QWidget):
     """Envolve a aba de Referências, que já era um QWidget autossuficiente."""
@@ -87,8 +89,9 @@ class JanelaPlanck(FluentWindow):
 
     def __init__(self):
         super().__init__()
-        setTheme(Theme.DARK)
-        setThemeColor("#1565C0")
+        # O tema vem ANTES de qualquer widget: os cartões e os gráficos leem a
+        # paleta ao nascer, e repintá-los depois seria trabalho perdido.
+        paleta.aplicar_tema()
 
         self.setWindowTitle("Planck Automation — Constante de Planck por radiação de corpo negro")
 
@@ -233,12 +236,23 @@ class JanelaPlanck(FluentWindow):
         self.lbl_estado = CaptionLabel("")
         self.lbl_estado.setObjectName("estadoInstrumentos")
 
+        # O alternador de tema mora aqui pela mesma razão que o estado dos
+        # instrumentos: vale para a janela inteira, não para uma página. E fica
+        # à mão porque a escolha entre claro e escuro depende da sala — a mesma
+        # pessoa troca ao sair do laboratório para a aula.
+        self.btn_tema = TransparentToolButton(FluentIcon.CONSTRACT)
+        self.btn_tema.setFixedSize(38, 30)
+        self.btn_tema.clicked.connect(self.alternar_tema)
+
         barra = self.titleBar.hBoxLayout
         # Os botões de janela são o último item; entramos antes deles.
         posicao = barra.count() - 1
         barra.insertStretch(posicao, 1)
         barra.insertWidget(posicao + 1, self.lbl_estado, 0, Qt.AlignVCenter)
-        barra.insertSpacing(posicao + 2, 16)
+        barra.insertSpacing(posicao + 2, 12)
+        barra.insertWidget(posicao + 3, self.btn_tema, 0, Qt.AlignVCenter)
+        barra.insertSpacing(posicao + 4, 8)
+        self._atualizar_dica_tema()
 
     def _montar_area_central(self):
         """
@@ -286,6 +300,34 @@ class JanelaPlanck(FluentWindow):
     def _ao_trocar_pagina(self):
         if self.stackedWidget.currentWidget() is self.pagina_bancada:
             self.pagina_bancada.atualizar_faixa()
+
+    # -- tema ----------------------------------------------------------------
+
+    def _atualizar_dica_tema(self):
+        proximo = "escuro" if not paleta.escuro() else "claro"
+        self.btn_tema.setToolTip(f"Mudar para o tema {proximo}")
+
+    def aplicar_tema(self, nome: str):
+        """
+        Aplica um tema e manda cada página se repintar.
+
+        A biblioteca Fluent redesenha sozinha os widgets dela, mas não sabe
+        nada do que foi pintado à mão: gráficos do pyqtgraph, cartões de
+        resultado, painéis de registro. Cada página que pinta algo expõe um
+        `repintar_tema`, e é ele que fecha essa lacuna.
+        """
+        paleta.aplicar_tema(nome)
+        self._atualizar_dica_tema()
+        for pagina in (self.pagina_simulacao, self.pagina_bancada,
+                       self.pagina_analise, self.pagina_parametros,
+                       self.pagina_conexao):
+            repintar = getattr(pagina, "repintar_tema", None)
+            if callable(repintar):
+                repintar()
+
+    def alternar_tema(self):
+        """Troca claro ↔ escuro — o que o botão da barra de título faz."""
+        self.aplicar_tema("claro" if paleta.escuro() else "escuro")
 
     def atualizar_cabecalho(self):
         """Resume o estado dos dois instrumentos numa linha curta."""

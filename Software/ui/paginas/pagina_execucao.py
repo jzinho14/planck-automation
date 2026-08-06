@@ -9,6 +9,10 @@ segurança. Por isso partilham uma classe base.
 Diferença central em relação à interface antiga: **não há mais sub-abas**. Os
 parâmetros vivem na página de Parâmetros, e estas páginas só executam e
 mostram. Era o "abas dentro de abas" que tornava a navegação confusa.
+
+O painel de resultado é um painel de indicadores: o valor de h em corpo grande
+e centralizado, e os diagnósticos em cartões coloridos ao lado. Cor com
+significado fixo (ver `ui/paleta.py`) e sempre acompanhada de número e texto.
 """
 import os
 
@@ -18,18 +22,55 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
                                QMessageBox, QTextEdit, QFrame, QStackedWidget)
 from PySide6.QtCore import Qt
 
-from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, TitleLabel,
-                            StrongBodyLabel, CaptionLabel, PushButton,
-                            PrimaryPushButton, ProgressBar, InfoBar,
+from qfluentwidgets import (HeaderCardWidget, CardWidget, CaptionLabel,
+                            PushButton, PrimaryPushButton, ProgressBar, InfoBar,
                             InfoBarPosition, FluentIcon, ScrollArea,
                             SegmentedWidget)
 
 from utils.math_models import selecionar_pontos_validos
-from ui.components.indicadores import (Indicador, SeloVeredicto, BarraOrcamento,
-                                       LegendaOrcamento, estilo_terminal,
-                                       linha_registro, cabecalho_registro)
+from ui import paleta
+from ui.components.indicadores import (CartaoMetrica, CartaoDestaque,
+                                       BarraOrcamento, LegendaOrcamento,
+                                       estilo_terminal, linha_registro,
+                                       cabecalho_registro)
 from ui.components.export_dialog import ExportDialog
 from utils.pdf_exporter import generate_planck_report
+
+# Gráficos que existem, em ordem, com título e eixos. A mesma tabela alimenta a
+# pilha da página e a janela de visão completa — assim as duas não divergem.
+GRAFICOS = (
+    ("temp",   "Temperatura do filamento",   "T (K)",  "Tensão (V)"),
+    ("bruto",  "Fotocorrente do LED",        "I (A)",  "Tensão (V)"),
+    ("linear", "Linearização ln(I) × 1/T",   "ln(I)",  "1/T (K⁻¹)"),
+)
+
+
+def _tom_do_erro(percentual: float) -> str:
+    """
+    Cor do cartão de erro contra a CODATA.
+
+    Os cortes são de bom senso experimental, não de norma: até 5 % a montagem
+    está fazendo o que promete; até 15 % ainda é um resultado didático
+    defensável; acima disso alguma coisa precisa ser investigada. A cor é
+    reforço — o número está escrito no mesmo cartão.
+    """
+    if not np.isfinite(percentual):
+        return "descartado"
+    if percentual <= 5.0:
+        return "bom"
+    if percentual <= 15.0:
+        return "atencao"
+    return "ruim"
+
+
+def _tom_do_r2(r2: float) -> str:
+    if not np.isfinite(r2):
+        return "descartado"
+    if r2 >= 0.99:
+        return "bom"
+    if r2 >= 0.95:
+        return "atencao"
+    return "ruim"
 
 
 class JanelaGraficos(QWidget):
@@ -57,44 +98,45 @@ class JanelaGraficos(QWidget):
         coluna.setSpacing(10)
 
         self.plots = {}
-        for chave, titulo_grafico, eixo_y, eixo_x in (
-            ("temp", "Temperatura do filamento", "T (K)", "Tensão (V)"),
-            ("bruto", "Fotocorrente do LED", "I (A)", "Tensão (V)"),
-            ("linear", "Linearização ln(I) × 1/T", "ln(I)", "1/T (K⁻¹)"),
-        ):
+        for chave, titulo_grafico, eixo_y, eixo_x in GRAFICOS:
             grafico = pg.PlotWidget(title=titulo_grafico)
             grafico.setLabel('left', eixo_y)
             grafico.setLabel('bottom', eixo_x)
-            grafico.showGrid(x=True, y=True, alpha=0.15)
             grafico.setMinimumHeight(260)
             self.plots[chave] = grafico
             coluna.addWidget(grafico)
 
         self.itens = {
-            "temp": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
-                                       brush=pg.mkBrush(255, 165, 0, 210)),
-            "bruto": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
-                                        brush=pg.mkBrush(0, 150, 255, 210)),
-            "fora": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
-                                       brush=pg.mkBrush(130, 130, 130, 150)),
-            "usados": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
-                                         brush=pg.mkBrush(171, 71, 188, 220)),
-            "reta": pg.PlotDataItem(pen=pg.mkPen('w', width=2, style=Qt.DashLine)),
+            "temp": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None)),
+            "bruto": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None)),
+            "fora": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None)),
+            "usados": pg.ScatterPlotItem(size=7, pen=pg.mkPen(None)),
+            "reta": pg.PlotDataItem(),
         }
         self.plots["temp"].addItem(self.itens["temp"])
         self.plots["bruto"].addItem(self.itens["bruto"])
         for chave in ("fora", "usados", "reta"):
             self.plots["linear"].addItem(self.itens[chave])
 
-        coluna.addWidget(CaptionLabel("Registro da coleta"))
+        self.lbl_registro = CaptionLabel("Registro da coleta")
+        coluna.addWidget(self.lbl_registro)
         self.registro = QTextEdit()
         self.registro.setReadOnly(True)
         self.registro.setMinimumHeight(220)
-        self.registro.setStyleSheet(estilo_terminal())
         coluna.addWidget(self.registro)
 
         area.setWidget(conteudo)
         layout.addWidget(area)
+        self.repintar_tema()
+
+    def repintar_tema(self):
+        for chave, titulo, _, _ in GRAFICOS:
+            paleta.pintar_grafico(self.plots[chave], titulo)
+        for chave, grandeza in (("temp", "temperatura"), ("bruto", "fotocorrente"),
+                                ("fora", "descartado"), ("usados", "regressao")):
+            self.itens[chave].setBrush(paleta.pincel(grandeza))
+        self.itens["reta"].setPen(paleta.caneta_reta())
+        self.registro.setStyleSheet(estilo_terminal())
 
     def sincronizar(self, pagina):
         """Copia o estado atual dos gráficos e do registro da página."""
@@ -119,7 +161,6 @@ class PaginaExecucaoBase(QWidget):
     titulo = "Execução"
     titulo_visao = "Coleta"
     nome_objeto = "pagina_execucao"
-    cor_iniciar = "#2e7d32"
 
     def __init__(self, janela, parent=None):
         super().__init__(parent)
@@ -129,6 +170,7 @@ class PaginaExecucaoBase(QWidget):
         self.params = {}
         self.last_results = {}
         self.data_v, self.data_t, self.data_i_led = [], [], []
+        self.linhas_registro = []
         self._teve_resultado = False
         self._montar()
 
@@ -138,12 +180,12 @@ class PaginaExecucaoBase(QWidget):
         """
         Conteúdo dentro de uma área rolável.
 
-        Esta página é legitimamente alta: faixa de segurança, controles, cartão
-        de resultado, três gráficos e o registro. Somando os mínimos, ela pedia
-        mais de 1000 px de altura — mais que muitas telas. Sem rolagem, a
-        janela era forçada a crescer além do monitor e nascia parcialmente fora
-        dele; numa janela sem moldura, isso a torna impossível de arrastar de
-        volta. A rolagem resolve na origem: a página encolhe até o que couber.
+        Esta página é legitimamente alta: faixa de segurança, controles, painel
+        de resultado, gráfico e registro. Somando os mínimos, ela pedia mais de
+        1000 px de altura — mais que muitas telas. Sem rolagem, a janela era
+        forçada a crescer além do monitor e nascia parcialmente fora dele; numa
+        janela sem moldura, isso a torna impossível de arrastar de volta. A
+        rolagem resolve na origem: a página encolhe até o que couber.
         """
         externo = QVBoxLayout(self)
         externo.setContentsMargins(0, 0, 0, 0)
@@ -192,53 +234,56 @@ class PaginaExecucaoBase(QWidget):
 
     def _cartao_resultado(self) -> HeaderCardWidget:
         """
-        Resultado: número-herói + indicadores + veredicto + orçamento.
+        Painel de resultado: destaque + cartões de diagnóstico + orçamento.
 
-        O valor de h é a única coisa que o operador procura ao terminar, então
-        ele é o número grande. O resto são diagnósticos — cabem em blocos
-        pequenos ao lado, não em frases corridas.
+        A hierarquia é deliberada e tem três degraus. O valor de h ocupa a
+        largura toda porque é o que se procura ao terminar. Os quatro
+        diagnósticos vêm abaixo, do mesmo tamanho entre si, porque nenhum deles
+        é mais importante que os outros. O orçamento de incertezas fecha, como
+        um gráfico pequeno: interessa a quem vai discutir o resultado, não a
+        quem só quer o número.
         """
         cartao = HeaderCardWidget(self)
         cartao.setTitle("Resultado")
 
         corpo = QWidget()
         vertical = QVBoxLayout(corpo)
-        vertical.setSpacing(12)
+        vertical.setSpacing(14)
 
-        # --- linha 1: o número que importa + o veredicto ---
-        linha_topo = QHBoxLayout()
-        coluna_h = QVBoxLayout()
-        coluna_h.setSpacing(0)
-        self.lbl_h = TitleLabel("—")
-        self.lbl_unidade = CaptionLabel("constante de Planck (J·s), incerteza expandida k=2")
-        coluna_h.addWidget(self.lbl_h)
-        coluna_h.addWidget(self.lbl_unidade)
+        self.destaque = CartaoDestaque()
+        vertical.addWidget(self.destaque)
 
-        self.selo = SeloVeredicto()
-
-        linha_topo.addLayout(coluna_h)
-        linha_topo.addStretch()
-        linha_topo.addWidget(self.selo)
-        vertical.addLayout(linha_topo)
-
-        # --- linha 2: indicadores de diagnóstico ---
-        self.indicadores = {
-            "erro": Indicador("erro vs CODATA", dica="Distância percentual do valor de referência."),
-            "r2": Indicador("R²", dica="Quão bem os pontos se ajustam à reta linearizada."),
-            "chi2": Indicador("χ² reduzido",
-                              dica="Compara a dispersão observada com a incerteza declarada.\n"
-                                   "Neste experimento fica abaixo de 1 por construção:\n"
-                                   "a especificação de datasheet é um limite de pior caso."),
-            "pontos": Indicador("pontos na regressão",
-                                dica="Quantos dos pontos coletados entraram na conta."),
+        # Cada cartão nasce com o acento da grandeza a que se refere; os dois
+        # primeiros trocam de cor conforme o valor (ver `_tom_do_erro`).
+        self.cartoes = {
+            "erro": CartaoMetrica(
+                "erro vs CODATA", "distância percentual do valor de referência",
+                acento="info"),
+            "r2": CartaoMetrica(
+                "R²", "aderência dos pontos à reta linearizada",
+                acento="fotocorrente"),
+            "chi2": CartaoMetrica(
+                "χ² reduzido", "dispersão observada ÷ incerteza declarada",
+                acento="regressao"),
+            "pontos": CartaoMetrica(
+                "pontos na regressão", "quantos dos coletados entraram na conta",
+                acento="temperatura"),
         }
-        linha_indicadores = QHBoxLayout()
-        linha_indicadores.setSpacing(10)
-        for indicador in self.indicadores.values():
-            linha_indicadores.addWidget(indicador)
-        vertical.addLayout(linha_indicadores)
+        grade = QHBoxLayout()
+        grade.setSpacing(12)
+        for indicador in self.cartoes.values():
+            grade.addWidget(indicador)
+        vertical.addLayout(grade)
 
-        # --- linha 3: orçamento de incertezas ---
+        # A ressalva sobre o χ² é longa demais para caber no cartão sem
+        # empurrar a altura dos quatro; fica no tooltip, onde quem quiser a
+        # explicação vai buscá-la.
+        self.cartoes["chi2"].setToolTip(
+            "Dispersão observada dividida pela incerteza declarada.\n"
+            "Neste experimento fica abaixo de 1 por construção: a\n"
+            "especificação de datasheet é um limite de pior caso, não\n"
+            "um desvio padrão.")
+
         self.lbl_titulo_orcamento = CaptionLabel("Composição da incerteza")
         self.barra_orcamento = BarraOrcamento()
         self.legenda_orcamento = LegendaOrcamento()
@@ -267,25 +312,20 @@ class PaginaExecucaoBase(QWidget):
         layout = QHBoxLayout(cartao)
         layout.setContentsMargins(12, 12, 12, 12)
 
-        pg.setConfigOption('background', '#202020')
-        pg.setConfigOption('foreground', '#d4d4d4')
-
         coluna_graficos = QVBoxLayout()
 
         barra = QHBoxLayout()
         # O callback por item do SegmentedWidget só dispara em clique do
         # usuário; trocar por código não o aciona. Por isso a troca de gráfico
         # é ligada ao SINAL currentItemChanged, que vale para os dois casos.
-        self._indice_grafico = {"temp": 0, "bruto": 1, "linear": 2}
+        self._indice_grafico = {chave: indice
+                                for indice, (chave, *_) in enumerate(GRAFICOS)}
         self.seletor_grafico = SegmentedWidget()
-        for chave, titulo in (("temp", "Temperatura"),
-                              ("bruto", "Fotocorrente"),
-                              ("linear", "Linearização ln(I) × 1/T")):
+        for chave, titulo, _, _ in GRAFICOS:
             self.seletor_grafico.addItem(chave, titulo)
         self.seletor_grafico.currentItemChanged.connect(
             lambda chave: self.pilha_graficos.setCurrentIndex(
                 self._indice_grafico.get(chave, 0)))
-        self.seletor_grafico.setCurrentItem("temp")
 
         self.btn_ver_tudo = PushButton(FluentIcon.ZOOM, "Ver tudo")
         self.btn_ver_tudo.setToolTip(
@@ -300,40 +340,44 @@ class PaginaExecucaoBase(QWidget):
         self.pilha_graficos = QStackedWidget()
         self.pilha_graficos.setMinimumHeight(380)
 
-        self.plot_temp = pg.PlotWidget(title="Temperatura do filamento")
-        self.plot_temp.setLabel('left', "T (K)")
-        self.plot_temp.setLabel('bottom', "Tensão (V)")
-        self.pontos_temp = pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
-                                              brush=pg.mkBrush(255, 165, 0, 210))
+        # Sem título dentro do gráfico: a aba selecionada logo acima já diz
+        # qual é. Repetir o nome dois centímetros abaixo dele só rouba altura
+        # do desenho. Na janela de visão completa é o contrário — lá os três
+        # ficam empilhados, e cada um precisa se identificar.
+        self.plot_temp = pg.PlotWidget()
+        self.plot_temp.setLabel('left', GRAFICOS[0][2])
+        self.plot_temp.setLabel('bottom', GRAFICOS[0][3])
+        self.pontos_temp = pg.ScatterPlotItem(size=7, pen=pg.mkPen(None))
         self.plot_temp.addItem(self.pontos_temp)
 
-        self.plot_bruto = pg.PlotWidget(title="Fotocorrente do LED")
-        self.plot_bruto.setLabel('left', "I (A)")
-        self.plot_bruto.setLabel('bottom', "Tensão (V)")
-        self.pontos_bruto = pg.ScatterPlotItem(size=7, pen=pg.mkPen(None),
-                                               brush=pg.mkBrush(0, 150, 255, 210))
+        self.plot_bruto = pg.PlotWidget()
+        self.plot_bruto.setLabel('left', GRAFICOS[1][2])
+        self.plot_bruto.setLabel('bottom', GRAFICOS[1][3])
+        self.pontos_bruto = pg.ScatterPlotItem(size=7, pen=pg.mkPen(None))
         self.plot_bruto.addItem(self.pontos_bruto)
 
-        self.plot_linear = pg.PlotWidget(title="Linearização ln(I) × 1/T")
-        self.plot_linear.setLabel('left', "ln(I)")
-        self.plot_linear.setLabel('bottom', "1/T (K⁻¹)")
+        self.plot_linear = pg.PlotWidget()
+        self.plot_linear.setLabel('left', GRAFICOS[2][2])
+        self.plot_linear.setLabel('bottom', GRAFICOS[2][3])
         self.plot_linear.addLegend(offset=(-10, 10))
         self.pontos_fora = pg.ScatterPlotItem(
-            size=7, pen=pg.mkPen(None), brush=pg.mkBrush(130, 130, 130, 150),
-            name="Descartado (fora da região de Wien)")
+            size=7, pen=pg.mkPen(None), name="Descartado (fora da região de Wien)")
         self.pontos_usados = pg.ScatterPlotItem(
-            size=7, pen=pg.mkPen(None), brush=pg.mkBrush(171, 71, 188, 220),
-            name="Usado na regressão")
-        self.reta = pg.PlotDataItem(pen=pg.mkPen('w', width=2, style=Qt.DashLine))
+            size=7, pen=pg.mkPen(None), name="Usado na regressão")
+        self.reta = pg.PlotDataItem()
         for item in (self.pontos_fora, self.pontos_usados, self.reta):
             self.plot_linear.addItem(item)
 
         for grafico in (self.plot_temp, self.plot_bruto, self.plot_linear):
-            grafico.showGrid(x=True, y=True, alpha=0.15)
             self.pilha_graficos.addWidget(grafico)
 
         coluna_graficos.addWidget(self.pilha_graficos)
         layout.addLayout(coluna_graficos, stretch=3)
+
+        # A seleção inicial vem DEPOIS da pilha existir. Ligado a
+        # `currentItemChanged`, `setCurrentItem` dispara de verdade — inclusive
+        # nesta primeira chamada —, e o receptor precisa já estar de pé.
+        self.seletor_grafico.setCurrentItem("temp")
 
         painel_registro = QWidget()
         coluna = QVBoxLayout(painel_registro)
@@ -345,14 +389,56 @@ class PaginaExecucaoBase(QWidget):
         self.registro.setReadOnly(True)
         self.registro.setMinimumWidth(320)
         self.registro.setMinimumHeight(260)
-        self.registro.setStyleSheet(estilo_terminal())
-        self.registro.setHtml(cabecalho_registro())
         coluna.addWidget(self.registro)
 
         layout.addWidget(painel_registro, stretch=1)
 
         self.visao_completa = None
+        self.repintar_tema()
         return cartao
+
+    # -- tema ----------------------------------------------------------------
+
+    def repintar_tema(self):
+        """
+        Reaplica as cores a tudo que foi pintado à mão.
+
+        Chamada na construção e a cada alternância de tema. Sem ela, alternar
+        para o tema claro deixaria gráficos escuros e um registro preto no meio
+        de uma interface branca: o `pg.setConfigOption` só vale para gráficos
+        criados depois dele, e o HTML do registro tem as cores embutidas.
+        """
+        for grafico in (self.plot_temp, self.plot_bruto, self.plot_linear):
+            paleta.pintar_grafico(grafico)
+
+        for item, grandeza in ((self.pontos_temp, "temperatura"),
+                               (self.pontos_bruto, "fotocorrente"),
+                               (self.pontos_fora, "descartado"),
+                               (self.pontos_usados, "regressao")):
+            item.setBrush(paleta.pincel(grandeza))
+        self.reta.setPen(paleta.caneta_reta())
+
+        self.registro.setStyleSheet(estilo_terminal())
+        self._redesenhar_registro()
+
+        self.destaque.repintar()
+        for indicador in self.cartoes.values():
+            indicador.repintar()
+        self.barra_orcamento.repintar()
+        self.legenda_orcamento.repintar()
+
+        if self.visao_completa is not None:
+            self.visao_completa.repintar_tema()
+            if self.visao_completa.isVisible():
+                self.visao_completa.sincronizar(self)
+
+    def _redesenhar_registro(self):
+        """Reescreve o registro inteiro com as cores do tema em vigor."""
+        partes = [cabecalho_registro()]
+        partes.extend(linha_registro(*dados) for dados in self.linhas_registro)
+        self.registro.setHtml("<br>".join(partes))
+        self.registro.verticalScrollBar().setValue(
+            self.registro.verticalScrollBar().maximum())
 
     def abrir_visao_completa(self):
         """Janela própria com os três gráficos e o registro empilhados."""
@@ -371,11 +457,16 @@ class PaginaExecucaoBase(QWidget):
 
     def preparar_inicio(self) -> dict:
         self.data_v.clear(); self.data_t.clear(); self.data_i_led.clear()
+        self.linhas_registro.clear()
         for item in (self.pontos_temp, self.pontos_bruto,
                      self.pontos_usados, self.pontos_fora, self.reta):
             item.setData([], [])
-        self.registro.clear()
-        self.registro.setHtml(cabecalho_registro())
+        self._redesenhar_registro()
+        self.destaque.limpar()
+        for indicador in self.cartoes.values():
+            indicador.definir("—")
+        self.barra_orcamento.definir([])
+        self.legenda_orcamento.definir([])
 
         params = self.parametros()
         vetor = np.arange(params['v_start'],
@@ -408,8 +499,11 @@ class PaginaExecucaoBase(QWidget):
             else:
                 cena.setData([], [])
 
-        self.registro.append(
-            linha_registro(tensao, corrente, temperatura, fotocorrente, bool(usados[-1])))
+        # A linha vai para a lista ANTES de ir para a tela: é a lista que
+        # permite reescrever o registro inteiro ao trocar de tema.
+        self.linhas_registro.append(
+            (tensao, corrente, temperatura, fotocorrente, bool(usados[-1])))
+        self.registro.append(linha_registro(*self.linhas_registro[-1]))
         self.registro.verticalScrollBar().setValue(
             self.registro.verticalScrollBar().maximum())
 
@@ -429,17 +523,15 @@ class PaginaExecucaoBase(QWidget):
         self.btn_parar.setEnabled(False)
         self.btn_pdf.setEnabled(True)
 
-        self.lbl_h.setText(resultado.texto)
-        self.indicadores["erro"].definir(f"{resultado.erro_relativo:.2f}%")
-        self.indicadores["r2"].definir(f"{resultado.ajuste.r2:.4f}")
-        self.indicadores["chi2"].definir(f"{resultado.ajuste.chi2_reduzido:.3f}")
-        self.indicadores["pontos"].definir(
-            f"{resultado.n_usados}/{resultado.n_total}")
+        self.destaque.definir(resultado)
 
-        self.selo.definir(
-            resultado.compativel_com_codata,
-            "Compatível com a CODATA" if resultado.compativel_com_codata
-            else "CODATA fora da incerteza — há sistemático não contabilizado")
+        self.cartoes["erro"].definir(f"{resultado.erro_relativo:.2f}%",
+                                     _tom_do_erro(resultado.erro_relativo))
+        self.cartoes["r2"].definir(f"{resultado.ajuste.r2:.4f}",
+                                   _tom_do_r2(resultado.ajuste.r2))
+        self.cartoes["chi2"].definir(f"{resultado.ajuste.chi2_reduzido:.3f}")
+        self.cartoes["pontos"].definir(
+            f"{resultado.n_usados}/{resultado.n_total}")
 
         fatias = resultado.orcamento_ordenado()
         self.barra_orcamento.definir(fatias)
@@ -534,8 +626,11 @@ class PaginaExecucaoBase(QWidget):
         if not caminho:
             return
         try:
+            # A linearização é o gráfico do relatório: é dela que sai h. Antes
+            # daqui capturava-se um painel com os três gráficos, que deixou de
+            # existir quando a página passou a mostrar um de cada vez.
             imagem = "temp_grafico_pagina.png"
-            self.graficos.grab().save(imagem)
+            self.plot_linear.grab().save(imagem)
             generate_planck_report(caminho, self.last_results,
                                    self.parametros_formatados(),
                                    dialogo.get_data(), imagem)

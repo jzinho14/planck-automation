@@ -506,18 +506,23 @@ def incerteza_lambda(delta_lambda_nm: float,
     return delta_lambda_nm / divisor
 
 
-def formatar_com_incerteza(valor: float, incerteza: float,
-                           unidade: str = "", k: float = FATOR_ABRANGENCIA_PADRAO) -> str:
+def decompor_com_incerteza(valor: float, incerteza: float):
     """
-    Formata "valor ± incerteza" com algarismos significativos coerentes.
+    Separa "valor ± incerteza" em mantissa, incerteza e expoente já arredondados.
 
     Regra usual de metrologia: a incerteza expandida fica com 1 a 2 algarismos
-    significativos, e o valor é arredondado na mesma casa decimal. Reportar
+    significativos, e o valor é arredondado na MESMA casa decimal. Reportar
     h = 6,6260701e-34 ± 2e-35 seria falso: os últimos dígitos não significam
     nada diante da incerteza.
+
+    Devolve `(mantissa, mantissa_incerteza, expoente, casas)` ou `None` quando
+    os números não permitem o arredondamento (não finitos, ou incerteza nula).
+    Existe separada de `formatar_com_incerteza` porque a interface precisa das
+    partes soltas — mostra o valor em corpo grande e a incerteza abaixo —, e a
+    regra de arredondamento não pode ter duas implementações.
     """
     if not np.isfinite(valor) or not np.isfinite(incerteza) or incerteza <= 0:
-        return f"{valor:.4e} {unidade}".strip()
+        return None
 
     expoente = math.floor(math.log10(abs(valor))) if valor != 0 else 0
     mantissa = valor / (10 ** expoente)
@@ -529,6 +534,16 @@ def formatar_com_incerteza(valor: float, incerteza: float,
     else:
         casas = 2
     casas = min(casas, 8)
+    return mantissa, mantissa_u, expoente, casas
+
+
+def formatar_com_incerteza(valor: float, incerteza: float,
+                           unidade: str = "", k: float = FATOR_ABRANGENCIA_PADRAO) -> str:
+    """Formata "valor ± incerteza" numa linha só, para relatórios e logs."""
+    partes = decompor_com_incerteza(valor, incerteza)
+    if partes is None:
+        return f"{valor:.4e} {unidade}".strip()
+    mantissa, mantissa_u, expoente, casas = partes
 
     texto = f"({mantissa:.{casas}f} ± {mantissa_u:.{casas}f})×10^{expoente}"
     if unidade:

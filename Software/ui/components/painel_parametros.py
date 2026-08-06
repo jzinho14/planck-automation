@@ -21,6 +21,7 @@ from content.perfis import (carregar_perfis, acrescentar_perfil, salvar_perfis,
                             avisos, PerfilCompleto)
 from core.hardware_manager import (preferencias, limite_corrente,
                                    CHAVE_LIMITE_CORRENTE)
+from ui import paleta
 from utils.math_models import (corrigir_r0_para_zero_celsius,
                                TEMPERATURA_AMBIENTE_PADRAO,
                                TEMPERATURA_MINIMA_PADRAO)
@@ -87,6 +88,21 @@ class PainelParametros(QWidget):
         layout.addWidget(self.seletor_secao)
         layout.addWidget(self.secoes)
         layout.addStretch()
+        self.repintar_tema()
+
+    def repintar_tema(self):
+        """
+        Recolore os dois rótulos que não usam a tinta padrão.
+
+        `lbl_r0` é informação derivada (o R0 que o software calculou a partir
+        do que foi digitado) e `lbl_avisos` é alerta de carga de perfil. Os
+        dois precisam se distinguir do texto comum sem virar decoração — daí
+        as cores virem da paleta, e não de hexadecimais escritos aqui.
+        """
+        self.lbl_r0.setStyleSheet(
+            f"color: {paleta.cor('fotocorrente')}; font-size: 11px;")
+        self.lbl_avisos.setStyleSheet(
+            f"color: {paleta.cor('atencao')}; font-size: 11px;")
 
     def _secoes_disponiveis(self) -> list:
         secoes = [
@@ -124,7 +140,6 @@ class PainelParametros(QWidget):
 
         self.lbl_avisos = QLabel()
         self.lbl_avisos.setWordWrap(True)
-        self.lbl_avisos.setStyleSheet("color: #ffb74d; font-size: 11px;")
 
         forma.addRow("Perfil ativo:", self.combo_completo)
         forma.addRow("", linha)
@@ -157,7 +172,6 @@ class PainelParametros(QWidget):
             "Errar aqui desloca TODAS as temperaturas calculadas.")
 
         self.lbl_r0 = QLabel()
-        self.lbl_r0.setStyleSheet("color: #64B5F6; font-size: 11px;")
         for campo in (self.input_r_frio, self.input_u_r_frio,
                       self.input_t_ambiente, self.input_alpha, self.input_beta):
             campo.textChanged.connect(self._atualizar_r0)

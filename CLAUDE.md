@@ -76,15 +76,19 @@ Software/
 │   ├── metadados.py             # JSON irmão de cada CSV (P5 — rastreabilidade)
 │   └── carregador.py            # lê coletas gravadas (3 gerações de formato)
 ├── ui/
-│   ├── janela_fluent.py         # ← JANELA PADRÃO: FluentWindow, 5 páginas,
-│   │                            #   cabeçalho de estado fixo + barra de status
+│   ├── janela_fluent.py         # ← JANELA PADRÃO: FluentWindow, 6 páginas,
+│   │                            #   estado na barra de título + barra de status
+│   ├── paleta.py                # ← TEMA claro/escuro + cores de domínio.
+│   │                            #   Toda cor da UI nova sai daqui.
 │   ├── paginas/                 # pagina_conexao, pagina_execucao (base),
 │   │                            #   paginas_coleta, pagina_analise
 │   ├── main_window.py           # janela CLÁSSICA (PLANCK_UI=classica)
-│   ├── theme.py                 # DARK_THEME (string QSS)
+│   ├── theme.py                 # DARK_THEME (QSS) — só da janela clássica
 │   ├── components/
 │   │   ├── connection_panel.py  # Scan/validação VISA, persiste em QSettings("Senac","PlanckAutomation")
 │   │   ├── painel_parametros.py # ← COMPARTILHADO pelas duas abas (fim da duplicação)
+│   │   ├── indicadores.py       # cartões do painel de resultado (destaque,
+│   │   │                        #   métrica, selo, orçamento) — desenhados à mão
 │   │   └── export_dialog.py     # Metadados do relatório PDF
 │   └── tabs/
 │       ├── tab_simulation.py    # SimulationWorker(QThread) + UI de simulação
@@ -443,6 +447,26 @@ profiles/
    - **A janela clássica continua funcional:** `set PLANCK_UI=classica`. Só sai
      depois que a nova rodar um experimento real com os instrumentos ligados.
    - **⚠ Licença:** QFluentWidgets comunitário é GPLv3 — ver PENDENCIAS.txt, P6.
+   - **Acabamento (pedido do usuário, depois da 1ª validação visual):**
+     - `ui/paleta.py` centraliza **tema claro/escuro** (padrão CLARO, guardado em
+       `QSettings`, alternado por botão na barra de título) e as **cores de
+       domínio**: temperatura=laranja, fotocorrente=azul, regressão=roxo,
+       descartado=cinza; verde/âmbar/vermelho ficam RESERVADOS para estado.
+     - Quem pinta à mão expõe `repintar_tema()` e a janela chama todos ao
+       alternar: `pg.setConfigOption` só vale para gráficos criados DEPOIS dela,
+       e o HTML do registro tem cor embutida.
+     - ⚠ **Widgets Qt comuns seguem o modo de cor do SISTEMA** desde o Qt 6.5.
+       Numa máquina com Windows escuro, a página de Parâmetros (feita de
+       `QLineEdit`/`QGroupBox`) ficava preta com o tema claro escolhido.
+       `paleta._alinhar_widgets_nativos` fixa `styleHints().setColorScheme`.
+     - Painel de resultado virou painel de indicadores: `CartaoDestaque` com h em
+       corpo grande e centralizado + 4 `CartaoMetrica` coloridos + orçamento.
+       O erro vs CODATA e o R² **mudam de cor conforme o valor** (cortes em
+       `_tom_do_erro`/`_tom_do_r2`), sempre com o número escrito ao lado.
+   - ⚠ **`SegmentedWidget`: o callback por item só dispara em clique do usuário.**
+     Use o sinal `currentItemChanged`. E ligue-o só DEPOIS de o widget que ele
+     controla existir, senão a seleção inicial dispara contra um atributo ainda
+     não criado.
 7. ~~**Fase 6 — Página Análise**~~ ✅ **CONCLUÍDA.**
    - `core/carregador.py` lê as **três gerações** de CSV (histórica de 5 colunas,
      Fase 2 com 6, Fase 3+ com 8 e JSON). Leitura por NOME de coluna, não por

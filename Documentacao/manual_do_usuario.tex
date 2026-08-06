@@ -151,6 +151,21 @@ com o caminho oficial de cada um. \\
 \end{tabular}
 \end{center}
 
+\subsection{Tema claro e escuro}
+
+O botão de brilho na barra de título alterna entre o tema claro e o escuro. A
+escolha fica guardada: o software reabre no tema que você deixou.
+
+O padrão é o \textbf{claro}, porque é o que se enxerga num projetor. Em
+laboratório com pouca luz, o escuro cansa menos a vista. Nada além das cores
+muda --- os mesmos controles, nos mesmos lugares.
+
+Em qualquer um dos dois, as cores têm significado fixo: temperatura em laranja,
+fotocorrente em azul, ajuste de regressão em roxo, pontos descartados em cinza.
+Verde, âmbar e vermelho ficam reservados para \emph{estado} (bom, atenção,
+problema) e nunca aparecem como cor de série num gráfico. E nenhuma informação
+depende só da cor: todo veredicto vem acompanhado de ícone e texto.
+
 % =============================================================
 \section{Aba Hardware e Ligações}
 
@@ -507,7 +522,17 @@ registrados.
 \section{Lendo os resultados}
 \label{sec:resultados}
 
-Ao final, o software mostra três números:
+O painel de resultado tem três degraus, de propósito. No topo, em corpo grande e
+centralizado, o \textbf{valor de $h$ com a sua incerteza} e o veredicto de
+compatibilidade --- é o que se procura ao terminar uma coleta. Abaixo, quatro
+\textbf{cartões de diagnóstico} do mesmo tamanho, porque nenhum deles é mais
+importante que os outros. Fechando, o \textbf{orçamento de incertezas}.
+
+Nos cartões de erro e de $R^2$ a cor acompanha o valor: verde quando está bom,
+âmbar quando merece atenção, vermelho quando alguma coisa precisa ser
+investigada. A cor é reforço --- o número está escrito no mesmo cartão.
+
+Os números, um a um:
 
 \begin{description}[style=nextline,leftmargin=0.6cm]
   \item[$h$ com sua incerteza]

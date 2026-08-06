@@ -12,7 +12,7 @@ Formato de cada item:
   IMPACTO SE MUDAR - o que acontece ao alterar
   COMO ALTERAR    - onde mexer
 
-Ultima atualizacao: 05/08/2026 (apos a Fase 4)
+Ultima atualizacao: 05/08/2026 (apos o acabamento visual da Fase 5)
 
 ================================================================================
 P1 - [A3] Coeficientes de resistividade do tungstenio: qual par adotar?
@@ -384,6 +384,45 @@ ATENCAO
   sem metadados -- para eles, o R0 = 0.42 ohm continua sendo uma deducao, nao
   um registro. Se voce tiver anotacao de laboratorio daquelas coletas, vale
   criar os JSONs correspondentes a mao.
+
+================================================================================
+P8 - Manual do usuario ainda descreve a interface de ABAS, nao a de paginas
+================================================================================
+STATUS: ABERTO - decisao de escopo
+
+SITUACAO ATUAL
+  Documentacao/manual_do_usuario.tex fala em "Aba Hardware e Ligacoes", "Aba
+  Simulacao", "Aba Experimento Real" e "Aba Referencias" -- quatro abas. A
+  interface padrao de hoje tem SEIS paginas na navegacao lateral: Conexao,
+  Parametros, Simulacao, Bancada, Analise e Referencias.
+
+  O conteudo tecnico do manual continua correto (o que cada campo significa,
+  como ler os resultados, onde ficam os dados). O que envelheceu foi a
+  NAVEGACAO: os nomes das secoes e o caminho ate cada tela.
+
+  As partes que mudaram nesta rodada ja foram atualizadas: a secao de tema
+  claro/escuro e a abertura de "Lendo os resultados", que agora descreve o
+  painel de indicadores.
+
+POR QUE ESTA ASSIM
+  O manual foi escrito antes da migracao de interface (Fase 5) e nao foi
+  reescrito junto, para nao misturar duas coisas grandes num mesmo passo.
+  Reescrever a navegacao inteira e um trabalho de uma sessao propria, e nao
+  faz sentido faze-lo antes de a interface nova ser validada na bancada real
+  -- se algo mudar de lugar depois da validacao, o texto envelhece de novo.
+
+O QUE VERIFICAR
+  Decidir QUANDO reescrever a parte de navegacao do manual. A sugestao e:
+  depois de rodar um experimento real com a interface nova e confirmar que
+  nada muda de lugar.
+
+IMPACTO SE MUDAR
+  Nenhum no software. E documentacao.
+
+COMO ALTERAR
+  Documentacao/manual_do_usuario.tex, secoes \section{Aba ...} -> uma secao
+  por PAGINA, na ordem da navegacao lateral. Compilar uma vez ao final
+  (ver regra 7 do CLAUDE.md).
 
 ================================================================================
 FIM

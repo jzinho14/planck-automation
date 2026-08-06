@@ -7,7 +7,8 @@ from qfluentwidgets import (CardWidget, StrongBodyLabel, CaptionLabel,
 from core.hardware_manager import (preferencias, limite_corrente,
                                    CHAVE_MODO_DEMONSTRACAO, CHAVE_LIMITE_CORRENTE,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
-from ui.components.indicadores import Indicador
+from ui import paleta
+from ui.components.indicadores import CartaoMetrica
 from ui.paginas.pagina_execucao import PaginaExecucaoBase
 from ui.tabs.tab_simulation import SimulationWorker
 from ui.tabs.tab_experiment import ExperimentWorker
@@ -47,10 +48,14 @@ class PaginaBancada(PaginaExecucaoBase):
     texto_parar = "PARAR e processar"
 
     def _montar(self):
+        # A faixa é CONSTRUÍDA antes de `super()._montar()` e só INSERIDA
+        # depois. A montagem da base termina repintando a página inteira, e
+        # esse repinte passa pelos widgets da faixa — que precisam já existir.
+        faixa = self._faixa_seguranca()
         super()._montar()
         # Aviso de segurança fica no topo, acima dos controles: numa página de
         # bancada, o estado do hardware não pode depender de rolagem.
-        self._coluna.insertWidget(0, self._faixa_seguranca())
+        self._coluna.insertWidget(0, faixa)
 
     def _faixa_seguranca(self) -> CardWidget:
         """
@@ -74,11 +79,15 @@ class PaginaBancada(PaginaExecucaoBase):
             "Limite de corrente em vigor. Para alterar, vá em "
             "Parâmetros › Bancada.")
 
-        # Leitura ao vivo do ponto de operação.
-        self.ind_tensao = Indicador("tensão", "—")
-        self.ind_corrente = Indicador("corrente", "—")
-        self.ind_potencia = Indicador("potência", "—",
-                                      "Potência entregue ao filamento (V × i).")
+        # Leitura ao vivo do ponto de operação, na cor de cada grandeza. São os
+        # mesmos cartões do painel de resultado, em versão compacta — o
+        # operador não precisa aprender dois vocabulários visuais.
+        self.ind_tensao = CartaoMetrica("tensão", acento="info", compacto=True)
+        self.ind_corrente = CartaoMetrica("corrente", acento="temperatura",
+                                          compacto=True)
+        self.ind_potencia = CartaoMetrica(
+            "potência", "potência entregue ao filamento (V × i)",
+            acento="fotocorrente", compacto=True)
         for indicador in (self.ind_tensao, self.ind_corrente, self.ind_potencia):
             indicador.setFixedWidth(110)
 
@@ -91,13 +100,8 @@ class PaginaBancada(PaginaExecucaoBase):
         self.btn_emergencia.setMinimumWidth(150)
         self.btn_emergencia.setToolTip(
             "Parada de emergência: zera a tensão e desliga a saída da fonte.")
-        self.btn_emergencia.setStyleSheet(
-            "PushButton { background-color: #B3261E; color: white;"
-            " font-weight: 600; border: none; border-radius: 6px;"
-            " padding: 6px 18px; }"
-            "PushButton:hover { background-color: #C7372F; }"
-            "PushButton:pressed { background-color: #8F1D17; }")
         self.btn_emergencia.clicked.connect(self.parada_de_emergencia)
+        self._pintar_emergencia()
 
         linha.addWidget(self.lbl_seguranca)
         linha.addWidget(self.lbl_limite)
@@ -108,6 +112,29 @@ class PaginaBancada(PaginaExecucaoBase):
         linha.addSpacing(10)
         linha.addWidget(self.btn_emergencia)
         return cartao
+
+    def _pintar_emergencia(self):
+        """
+        O botão de parada em vermelho sólido, nos dois temas.
+
+        Aqui a cor é intencionalmente a mesma do estado "ruim" da paleta: é o
+        único controle da interface que precisa ser achado sem ler.
+        """
+        base = paleta.cor("ruim")
+        self.btn_emergencia.setStyleSheet(
+            f"PushButton {{ background-color: {base}; color: white;"
+            " font-weight: 600; border: none; border-radius: 6px;"
+            " padding: 6px 18px; }"
+            f"PushButton:hover {{ background-color:"
+            f" {paleta.mesclar('#FFFFFF', base, 0.14)}; }}"
+            f"PushButton:pressed {{ background-color:"
+            f" {paleta.mesclar('#000000', base, 0.18)}; }}")
+
+    def repintar_tema(self):
+        super().repintar_tema()
+        self._pintar_emergencia()
+        for indicador in (self.ind_tensao, self.ind_corrente, self.ind_potencia):
+            indicador.repintar()
 
     def atualizar_faixa(self):
         cfg = preferencias()

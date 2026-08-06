@@ -22,12 +22,14 @@ from PySide6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QFileDialog,
                                QListWidget, QListWidgetItem, QAbstractItemView,
                                QFrame)
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QColor
 
 from qfluentwidgets import (HeaderCardWidget, CardWidget, BodyLabel, StrongBodyLabel,
                             CaptionLabel, PushButton, PrimaryPushButton, TextEdit,
                             FluentIcon, InfoBar, InfoBarPosition, SegmentedWidget,
                             ScrollArea)
 
+from ui import paleta
 from ui.components.indicadores import estilo_terminal
 from core import carregador
 from utils.error_models import analisar_experimento
@@ -71,6 +73,7 @@ class PaginaAnalise(QWidget):
 
         area.setWidget(conteudo)
         externo.addWidget(area)
+        self.repintar_tema()
 
     def _cartao_coletas(self) -> HeaderCardWidget:
         cartao = HeaderCardWidget(self)
@@ -117,18 +120,25 @@ class PaginaAnalise(QWidget):
                               ("stefan", "log(P) × log(T)")):
             self.seletor.addItem(chave, titulo)
         self.seletor.currentItemChanged.connect(self.desenhar)
-        self.seletor.setCurrentItem("bruto")
 
-        pg.setConfigOption('background', '#202020')
-        pg.setConfigOption('foreground', '#d4d4d4')
         self.graficos = pg.GraphicsLayoutWidget()
         self.graficos.setMinimumHeight(320)
         self.plot = self.graficos.addPlot()
         self.plot.addLegend(offset=(-10, 10))
 
+        # Só agora: ligado ao sinal, `setCurrentItem` chama `desenhar`, que
+        # precisa do gráfico já criado.
+        self.seletor.setCurrentItem("bruto")
+
         vertical.addWidget(self.seletor)
         vertical.addWidget(self.graficos)
         return cartao
+
+    def repintar_tema(self):
+        """Reaplica as cores ao gráfico, ao relatório e às séries desenhadas."""
+        paleta.pintar_grafico(self.graficos, item=self.plot)
+        self.relatorio.setStyleSheet(estilo_terminal())
+        self.desenhar(self.seletor.currentRouteKey() or "bruto")
 
     def _cartao_relatorio(self) -> HeaderCardWidget:
         cartao = HeaderCardWidget(self)
@@ -186,9 +196,6 @@ class PaginaAnalise(QWidget):
 
     # -- gráficos ------------------------------------------------------------
 
-    CORES = [(0, 150, 255), (255, 165, 0), (60, 220, 120), (255, 80, 80),
-             (200, 120, 255), (255, 220, 80)]
-
     def desenhar(self, modo: str):
         self.plot.clear()
         coletas = self.selecionadas()
@@ -205,7 +212,9 @@ class PaginaAnalise(QWidget):
         self.plot.setLabel('left', eixo_y)
 
         for indice, coleta in enumerate(coletas):
-            cor = self.CORES[indice % len(self.CORES)]
+            # Cor por POSIÇÃO na seleção, da mesma sequência do orçamento de
+            # incertezas: a primeira coleta é sempre azul, a segunda sempre
+            # roxa, nos dois temas.
             nome = coleta.nome[-24:] + (" (sim)" if coleta.simulada else "")
 
             if modo == "bruto":
@@ -225,8 +234,10 @@ class PaginaAnalise(QWidget):
                 x = np.log(coleta.temperatura[validos])
                 y = np.log(coleta.potencia[validos])
 
+            tinta = QColor(paleta.serie(indice))
+            tinta.setAlpha(205)
             self.plot.addItem(pg.ScatterPlotItem(
-                x, y, size=6, pen=pg.mkPen(None), brush=pg.mkBrush(*cor, 200),
+                x, y, size=6, pen=pg.mkPen(None), brush=pg.mkBrush(tinta),
                 name=nome))
 
     # -- análise -------------------------------------------------------------

@@ -12,10 +12,12 @@ import os
 import sys
 
 from PySide6.QtWidgets import QApplication
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import QTimer, Qt
+from PySide6.QtGui import QColor
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "Software"))
 
+from ui import paleta
 from ui.janela_fluent import JanelaPlanck
 from core.hardware_manager import (preferencias, limite_corrente,
                                    CHAVE_LIMITE_CORRENTE, CHAVE_IP_DMM,
@@ -175,6 +177,58 @@ checa(len(bancada_pg.visao_completa.plots) == 3,
       "e ela traz os três, empilhados")
 bancada_pg.visao_completa.close()
 
+print("\n3d. Tema claro e escuro, alternáveis pela barra de título")
+
+checa(paleta.TEMA_PADRAO == "claro", "quem nunca escolheu abre no tema claro",
+      paleta.TEMA_PADRAO)
+# O tema é preferência PERSISTIDA, então o teste parte de um estado conhecido
+# em vez de supor que a máquina está no padrão de fábrica.
+janela.aplicar_tema("claro")
+app.processEvents()
+claro_fundo = paleta.cor("grafico_fundo")
+claro_tinta = paleta.cor("tinta")
+checa(QColor(claro_fundo).lightness() > QColor(claro_tinta).lightness(),
+      "no claro, o fundo do gráfico é mais claro que a tinta",
+      f"fundo {claro_fundo} · tinta {claro_tinta}")
+
+janela.alternar_tema()
+app.processEvents()
+checa(paleta.nome_tema() == "escuro", "o botão da barra de título alterna",
+      paleta.nome_tema())
+
+escuro_fundo = paleta.cor("grafico_fundo")
+checa(QColor(escuro_fundo).lightness() < QColor(claro_fundo).lightness(),
+      "e o escuro é de fato mais escuro", f"{claro_fundo} → {escuro_fundo}")
+checa(QColor(escuro_fundo).lightness() > 20,
+      "sem cair no preto puro, que era a queixa da interface antiga",
+      f"luminosidade {QColor(escuro_fundo).lightness()}")
+
+# O ponto que motivou `repintar_tema`: um gráfico criado antes da troca
+# precisa ACOMPANHAR o tema novo, e não só os criados depois.
+fundo_desenhado = bancada_pg.plot_temp.backgroundBrush().color()
+checa(fundo_desenhado.name().lower() == escuro_fundo.lower(),
+      "gráficos já na tela acompanham a troca",
+      f"{fundo_desenhado.name()} vs {escuro_fundo}")
+checa(escuro_fundo.lower() in bancada_pg.registro.styleSheet().lower()
+      or paleta.cor("superficie_alt").lower() in bancada_pg.registro.styleSheet().lower(),
+      "o painel de registro também")
+
+# A página de Parâmetros é feita de widgets Qt comuns, que por padrão seguem o
+# modo de cor do SISTEMA. Numa máquina com o Windows em modo escuro, isso
+# deixava metade da interface clara e metade escura.
+dicas = app.styleHints()
+if hasattr(dicas, "setColorScheme"):
+    checa(dicas.colorScheme() == Qt.ColorScheme.Dark,
+          "widgets Qt comuns seguem o tema do software, não o do Windows",
+          str(dicas.colorScheme()))
+
+janela.alternar_tema()
+app.processEvents()
+if hasattr(dicas, "setColorScheme"):
+    checa(dicas.colorScheme() == Qt.ColorScheme.Light,
+          "e voltam junto com ele")
+checa(paleta.nome_tema() == "claro", "e volta ao claro no segundo clique")
+
 print("\n4. B5 — endereço do multímetro configurável")
 
 conexao.input_ip.setText("10.0.0.42")
@@ -257,16 +311,22 @@ if resultado:
     checa(resultado.compativel_com_codata, "compatível com a CODATA")
     checa(bancada.barra.value() == bancada.barra.maximum(),
           "barra de progresso fechou", f"{bancada.barra.value()}/{bancada.barra.maximum()}")
-    checa("±" in bancada.lbl_h.text(), "o número-herói foi preenchido",
-          bancada.lbl_h.text())
-    checa(bancada.indicadores["erro"].lbl_valor.text() != "—",
-          "os indicadores foram preenchidos",
-          bancada.indicadores["erro"].lbl_valor.text())
+    checa("×" in bancada.destaque.lbl_valor.text(),
+          "o número-herói traz o valor em potência de dez",
+          bancada.destaque.lbl_valor.text())
+    checa("±" in bancada.destaque.lbl_incerteza.text(),
+          "e a incerteza logo abaixo dele",
+          bancada.destaque.lbl_incerteza.text())
+    checa(bancada.cartoes["erro"].lbl_valor.text() != "—",
+          "os cartões de diagnóstico foram preenchidos",
+          " · ".join(f"{nome} {c.lbl_valor.text()}"
+                     for nome, c in bancada.cartoes.items()))
     checa(len(bancada.barra_orcamento._fatias) > 0,
           "a barra de orçamento recebeu as fatias",
           str([n for n, _ in bancada.barra_orcamento._fatias]))
-    checa("✓" in bancada.selo.lbl.text() or "⚠" in bancada.selo.lbl.text(),
-          "o selo de veredicto traz ícone além da cor", bancada.selo.lbl.text())
+    selo = bancada.destaque.selo
+    checa("✓" in selo.lbl.text() or "⚠" in selo.lbl.text(),
+          "o selo de veredicto traz ícone além da cor", selo.lbl.text())
     checa(bancada.ind_potencia.lbl_valor.text().endswith("W"),
           "e a potência ao vivo foi atualizada", bancada.ind_potencia.lbl_valor.text())
     cinzas = bancada.pontos_fora.getData()[0]

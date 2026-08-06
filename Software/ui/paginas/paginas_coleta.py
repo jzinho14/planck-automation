@@ -5,7 +5,7 @@ from qfluentwidgets import (CardWidget, StrongBodyLabel, CaptionLabel,
                             PushButton, FluentIcon, InfoBar, InfoBarPosition)
 
 from core.hardware_manager import (preferencias, limite_corrente,
-                                   CHAVE_MODO_DEMONSTRACAO, CHAVE_LIMITE_CORRENTE,
+                                   CHAVE_MODO_DEMONSTRACAO,
                                    STRING_RECURSO_PWS, STRING_RECURSO_DMM)
 from ui import paleta
 from ui.components.indicadores import CartaoMetrica

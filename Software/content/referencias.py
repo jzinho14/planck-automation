@@ -9,11 +9,19 @@ Os PDFs em `Docs/` foram conferidos contra a origem oficial em 05/08/2026:
 os três documentos da Tektronix têm MD5 idêntico ao do arquivo servido por
 download.tek.com, e o artigo do RBEF é de acesso aberto (SciELO/DOI).
 """
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 
-# Raiz do repositório: .../Software/content/referencias.py -> parents[2]
-_RAIZ = Path(__file__).resolve().parents[2]
+# Onde procurar a pasta Docs/ com as cópias locais:
+# - rodando do repositório: na raiz dele (.../Software/content -> parents[2]);
+# - no executável empacotado (PyInstaller), `__file__` aponta para dentro de
+#   `_internal/` e subir três níveis cai fora da instalação — lá a referência
+#   é a pasta do próprio executável, onde o instalador deposita Docs/.
+if getattr(sys, "frozen", False):
+    _RAIZ = Path(sys.executable).resolve().parent
+else:
+    _RAIZ = Path(__file__).resolve().parents[2]
 PASTA_DOCS = _RAIZ / "Docs"
 
 

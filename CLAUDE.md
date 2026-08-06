@@ -108,7 +108,7 @@ Software/
                                  #   Fotocorrente_A, Tensao_Medida_V (nova, ao final)
 Tests/test_connection.py         # Scan VISA standalone (espelha o ScannerThread)
 Tests/test_mock_hardware.py      # 17 checagens da bancada simulada (roda sem hardware)
-Tests/test_math_models.py        # 25 checagens do modelo fisico (A2, A5, regressao)
+Tests/test_math_models.py        # 38 checagens do modelo fisico (A2, A5, regressao, A9)
 Tests/test_error_models.py       # 40 checagens da teoria de erros (Tipo A/B, ajuste, propagacao)
 Tests/test_perfis_metadados.py   # 40 checagens de perfis e metadados por coleta
 Tests/test_interface.py          # ponta a ponta pela UI classica, sem hardware
@@ -167,10 +167,13 @@ central está correta; há 4 problemas de exatidão que afetam o resultado:
   transimpedância; aqui o LED alimenta direto a entrada de corrente do DMM4050.
   Na faixa de 100 µA a *burden voltage* é < 0,015 V — quase curto-circuito, regime
   linear do LED como fotodetector. Justificado; documentar no help da UI.
-- **A9 — Simulação fisicamente inconsistente.** `simulate_experiment_data` impõe
-  T = linspace(1500, 3000) **independente das tensões** — a simulação não reproduz a
-  relação V→T do experimento (balanço de energia, Eq. 9 do artigo: V·i = C·ΔT + ε·σ·A·(T⁴−T0⁴)).
-  Melhorar para resolver T(V) pelo balanço de energia ou por R(V) empírico.
+- ~~**A9 — Simulação fisicamente inconsistente.**~~ ✅ **MORTO (Fase 7).**
+  `simulate_experiment_data` resolvia T = linspace(1500, 3000) independente das
+  tensões. Agora resolve T(V) pelo balanço de energia (Eq. 9 + condução), com a
+  MESMA física da bancada simulada — `resolver_temperatura_regime` e
+  `calibrar_dissipacao` moram em `utils/math_models.py` e os dois lados as
+  importam. Calibração: razão k_cond/k_rad dos 1127 pontos reais + âncora
+  2540 K a 12 V. Reproduz de propósito a fuga de 4,5 nA do DMM.
 - **A10 — Oportunidade: lei de Stefan-Boltzmann.** O artigo verifica também
   log(V·i) × log(T) → inclinação ≈ 4. Os CSVs já contêm todas as colunas
   necessárias. É um módulo de análise barato de adicionar e de alto valor didático.
@@ -391,7 +394,8 @@ profiles/
      (sem corte) para 5,6% (corte em 1800 K), com R² de 0,062 → 0,997.
    - `Tests/test_math_models.py` (22 checagens) + o critério de aceitação do A5
      fixado em `Tests/test_mock_hardware.py`.
-   - **Aberto:** A6, A7, A8 (documentação/incerteza — Fase 3), A9, A10.
+   - **Aberto:** A6, A7, A8 (documentação/incerteza — Fase 3). A10 morreu na
+     Fase 6; A9, na Fase 7.
 4. ~~**Fase 3 — Teoria de erros**~~ ✅ **CONCLUÍDA (motor; painel visual na Fase 5).**
    - `utils/error_models.py`: specs de instrumento como dataclasses, Tipo A/B,
      propagação com derivadas analíticas, ajuste ponderado e orçamento.
@@ -495,9 +499,22 @@ profiles/
    - Critério de aceitação por **desvio relativo**, não por sigmas: u_P/P ≈ 0,1%
      dá barra de ±0,02 no expoente, e o desvio real é sistemático — um teste de
      sigmas reprovaria tudo.
-8. **Fase 7 — Simulação física melhor (A9)** e empacotamento: PyInstaller
-   (`--windowed`, atenção aos hooks do QFluentWidgets/pyqtgraph) + script Inno Setup
-   (fluxo que o usuário já domina), conforme `Markdowns/project_description.md` §5.6.
+8. ~~**Fase 7 — Simulação física melhor (A9) e empacotamento**~~ ✅ **CONCLUÍDA.**
+   - **A9 morto** (ver §4): `simulate_experiment_data` resolve T(V) pelo balanço
+     de energia, com a MESMA física da bancada simulada — solver e calibração
+     moram em `utils/math_models.py`, os dois lados importam de lá.
+   - **Empacotamento:** `Software/planck.spec` (PyInstaller, onedir de
+     propósito: profiles/*.json continuam visíveis e editáveis; menos atrito
+     com antivírus) + `instalador/planck_setup.iss` (Inno Setup 6, instalação
+     POR USUÁRIO em {localappdata} para os JSON e os CSVs serem graváveis sem
+     admin; Docs/ vai ao lado do exe, onde `referencias.py` procura quando
+     congelado via `sys.frozen`).
+   - Gerar: `cd Software && pip install pyinstaller && pyinstaller planck.spec`
+     → `dist/PlanckAutomation/` (~176 MB). Depois compilar o .iss no Inno.
+     Verificado: o exe abre, cria os profiles na 1ª execução. O Inno não está
+     nesta máquina — compilar o instalador é passo do usuário.
+   - ⚠ Distribuir exe/instalador a terceiros dispara a GPLv3 do QFluentWidgets
+     (PENDENCIAS P6); gerar para uso próprio em pesquisa/aula não.
 
 **Nota (pedido do usuário):** a teoria de erros (§6) deve ser IMPLEMENTADA no software
 durante a reforma (Fase 3), mas o estudo conceitual do tema fica para depois — ao

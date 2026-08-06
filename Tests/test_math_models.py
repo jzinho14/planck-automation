@@ -15,7 +15,12 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from utils.math_models import (calculate_temperature, calculate_planck_constant,
                                corrigir_r0_para_zero_celsius,
                                selecionar_pontos_validos,
-                               C, K_B, H_REF, TEMPERATURA_MINIMA_PADRAO)
+                               simulate_experiment_data, calibrar_dissipacao,
+                               resolver_temperatura_regime,
+                               resistencia_do_filamento,
+                               C, K_B, H_REF, TEMPERATURA_MINIMA_PADRAO,
+                               TEMPERATURA_AMBIENTE_K,
+                               ANCORA_TENSAO, ANCORA_TEMPERATURA)
 
 ALPHA, BETA = 5.23e-3, 7.0e-7
 FALHAS = []
@@ -179,6 +184,88 @@ _, erro_com, _, _, r2_com = calculate_planck_constant(
     T_tudo, I_tudo, lam_nm, t_minima=TEMPERATURA_MINIMA_PADRAO)
 checa(erro_com < 1e-6, "com corte de temperatura também",
       f"erro {erro_com:.2e}%, R²={r2_com:.6f}")
+
+print("\n5. A9 — a simulação resolve T(V) pelo balanço de energia")
+
+R0_SIM = 1.2
+volts = np.arange(0.0, 12.5, 0.5)
+V, i_fil, R_fil, T_sim, I_led = simulate_experiment_data(
+    volts, R0_SIM, ALPHA, BETA, 590.0, noise_level=0.0, semente=42)
+
+# O defeito original: T era linspace(1500, 3000) fosse qual fosse a tensão.
+checa(abs(T_sim[0] - TEMPERATURA_AMBIENTE_K) < 1.0,
+      "em 0 V o filamento está na temperatura ambiente, não a 1500 K",
+      f"{T_sim[0]:.1f} K")
+checa(np.all(np.diff(T_sim) > 0), "T cresce monotonicamente com V")
+
+indice_12v = int(np.argmin(np.abs(V - ANCORA_TENSAO)))
+checa(abs(T_sim[indice_12v] - ANCORA_TEMPERATURA) < 5.0,
+      "a 12 V bate a âncora medida na bancada real",
+      f"{T_sim[indice_12v]:.0f} K (âncora {ANCORA_TEMPERATURA:.0f} K)")
+
+# Metade da tensão NÃO é metade da temperatura — a relação é a do balanço
+# de energia, dominado por T⁴ no topo da varredura.
+indice_6v = int(np.argmin(np.abs(V - 6.0)))
+checa(T_sim[indice_6v] > 0.7 * T_sim[indice_12v],
+      "a relação V→T é a do balanço de energia (T⁴), não uma reta",
+      f"T(6 V) = {T_sim[indice_6v]:.0f} K vs T(12 V) = {T_sim[indice_12v]:.0f} K")
+
+# Consistência interna que o linspace violava: os três vetores derivam um do
+# outro. Inverter R pelo próprio modelo tem de devolver o T simulado.
+T_volta = calculate_temperature(R_fil[1:], R0_SIM, ALPHA, BETA)
+checa(np.allclose(T_volta, T_sim[1:], rtol=1e-6),
+      "V → T → R é inversível: calculate_temperature(R) devolve o T simulado")
+checa(np.allclose(i_fil[1:], V[1:] / R_fil[1:]),
+      "corrente do filamento é V/R, coerente com os demais vetores")
+
+# O balanço de energia fecha em todos os pontos quentes.
+k_rad, k_cond = calibrar_dissipacao(R0_SIM, ALPHA, BETA)
+entregue = V[1:]**2 / R_fil[1:]
+dissipada = (k_rad * (T_sim[1:]**4 - TEMPERATURA_AMBIENTE_K**4)
+             + k_cond * (T_sim[1:] - TEMPERATURA_AMBIENTE_K))
+checa(np.allclose(entregue, dissipada, rtol=1e-4),
+      "potência entregue = potência dissipada em todos os pontos",
+      f"resíduo máximo {np.max(np.abs(entregue/dissipada - 1))*100:.4f}%")
+
+# A física é a MESMA do mock: o mesmo solver, os mesmos números.
+t_solver = resolver_temperatura_regime(9.0, R0_SIM, ALPHA, BETA, k_rad, k_cond)
+indice_9v = int(np.argmin(np.abs(V - 9.0)))
+checa(abs(t_solver - T_sim[indice_9v]) < 1e-6,
+      "simulação e bancada simulada compartilham o mesmo solver",
+      f"{t_solver:.2f} K")
+
+print("\n5b. A9 — o h da CODATA está embutido e é recuperável")
+
+# Sem ruído e sem fuga: a cadeia inteira tem de devolver h exatamente.
+_, _, _, T_puro, I_puro = simulate_experiment_data(
+    volts, R0_SIM, ALPHA, BETA, 590.0, noise_level=0.0, fuga_dmm=0.0)
+h_puro, erro_puro, _, _, r2_puro = calculate_planck_constant(
+    T_puro, I_puro, 590.0, t_minima=TEMPERATURA_MINIMA_PADRAO)
+checa(erro_puro < 1e-6, "sem ruído nem fuga, h volta exato",
+      f"erro {erro_puro:.2e}%, R²={r2_puro:.8f}")
+
+# Com os artefatos padrão (ruído 5% + fuga de 4,5 nA), ainda se recupera h
+# com a qualidade dos experimentos reais. O limite de 8% vem de medir a
+# distribuição em 40 sementes: mediana 4,2%, máximo 6,8% — o grosso é o viés
+# sistemático da fuga nos pontos mais frios que sobrevivem à seleção, o mesmo
+# efeito observado na bancada.
+_, _, _, T_real, I_real = simulate_experiment_data(
+    volts, R0_SIM, ALPHA, BETA, 590.0, semente=7)
+h_real, erro_real, _, _, r2_real = calculate_planck_constant(
+    T_real, I_real, 590.0, t_minima=TEMPERATURA_MINIMA_PADRAO)
+checa(erro_real < 8.0, "com ruído e fuga realistas, erro na casa dos %",
+      f"erro {erro_real:.2f}%, R²={r2_real:.4f}")
+
+# A fuga reproduz o fenômeno dos CSVs reais: pontos frios lendo ~4,5 nA.
+frios = T_real < 1000
+checa(bool(np.any(frios)) and float(np.median(I_real[frios])) > 3e-9,
+      "pontos frios leem o fundo do DMM, como na bancada real",
+      f"mediana fria {np.median(I_real[frios]):.2e} A")
+
+checa(np.allclose(
+        simulate_experiment_data(volts, R0_SIM, ALPHA, BETA, 590.0, semente=3)[4],
+        simulate_experiment_data(volts, R0_SIM, ALPHA, BETA, 590.0, semente=3)[4]),
+      "a mesma semente reproduz a mesma varredura (testes determinísticos)")
 
 if FALHAS:
     print(f"\n{len(FALHAS)} FALHA(S): " + "; ".join(FALHAS))

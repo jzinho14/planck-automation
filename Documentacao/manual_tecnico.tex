@@ -487,20 +487,40 @@ completo do filamento e obter um bom valor de $h$.
 
 \subsection{A simulação analítica}
 
-\texttt{simulate\_experiment\_data} gera dados sintéticos para a aba de
-Simulação. Ela impõe um vetor de temperaturas linearmente espaçado entre 1500 e
-3000~K, calcula a resistência correspondente pela equação~\eqref{eq:rt}, obtém
-a corrente por $i = V/R$, e aplica a equação~\eqref{eq:wien} com $h_{\text{ref}}$
-para produzir a fotocorrente. Sobre o resultado soma ruído gaussiano
-proporcional ao sinal mais um piso instrumental, e limita os valores por baixo
-para não quebrar o logaritmo.
+\texttt{simulate\_experiment\_data} gera dados sintéticos para a página de
+Simulação com a física do experimento real. Cada tensão do vetor de varredura
+passa pelo balanço de energia em regime estacionário,
+\begin{equation}
+\frac{V^2}{R(T)} \;=\; k_{\mathrm{rad}}\,(T^4 - T_{\mathrm{amb}}^4)
+\;+\; k_{\mathrm{cond}}\,(T - T_{\mathrm{amb}}),
+\label{eq:balanco-sim}
+\end{equation}
+resolvido por bissecção (\texttt{resolver\_temperatura\_regime}). A razão
+$k_{\mathrm{cond}}/k_{\mathrm{rad}}$ vem do ajuste sobre os 1127 pontos úteis
+dos CSVs reais, e a escala absoluta é calibrada para o filamento em uso bater a
+âncora medida na bancada: 2540~K a 12~V (\texttt{calibrar\_dissipacao}). Tudo
+o mais deriva daí: $R(T)$ pela equação~\eqref{eq:rt}, $i = V/R$, e a
+fotocorrente pela equação~\eqref{eq:wien} com $h_{\text{ref}}$ embutido ---
+recuperá-lo pela regressão é o teste de coerência da cadeia inteira.
+
+Dois artefatos do instrumento real são reproduzidos de propósito: o fundo de
+$\sim$4,5~nA que o DMM4050 lê em tensão baixa (para a simulação exibir os
+mesmos pontos frios sem sinal que a seleção da região de Wien existe para
+cortar) e um ruído gaussiano proporcional ao sinal, com fator escolhido pelo
+operador. Um parâmetro de semente congela o gerador para testes reprodutíveis.
 
 \begin{nota}
-\textbf{Limite conhecido.} A temperatura é imposta \emph{independentemente} das
-tensões: a simulação não reproduz a relação física entre tensão aplicada e
-temperatura atingida. Isso é adequado para demonstrar a cadeia de cálculo, mas
-não para estudar o comportamento do filamento. Para esse fim existe a bancada
-simulada (seção~\ref{sec:mock}), que resolve o balanço de energia de verdade.
+\textbf{História.} Até a Fase 7 esta função impunha
+$T = \mathrm{linspace}(1500, 3000)$ \emph{independente das tensões} --- a
+relação $V \to T$, que é o coração do experimento, não existia na simulação
+(defeito A9 da análise inicial). Hoje a página de Simulação e a bancada
+simulada (seção~\ref{sec:mock}) resolvem a \emph{mesma}
+equação~\eqref{eq:balanco-sim}, pelo mesmo código em
+\texttt{utils/math\_models.py}, calibrado nos mesmos dados reais. A diferença
+entre as duas é de propósito, não de física: a simulação é vetorizada e
+instantânea; a bancada simulada emula os instrumentos um a um (erros de
+setting/readback, quantização do DMM) para exercitar o mesmo caminho de código
+da coleta real.
 \end{nota}
 
 % =============================================================

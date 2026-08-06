@@ -26,6 +26,10 @@ dela). O que se preserva daquele ajuste é a razão k_cond/k_rad — a "forma" d
 curva —, e a escala é recalibrada no __init__ para que o filamento virtual
 chegue a 2540 K em 12 V, que é o topo medido na bancada real.
 
+Desde o A9 (Fase 7) essa física mora em `utils/math_models` e é compartilhada
+com `simulate_experiment_data`: a página de Simulação e o modo demonstração
+resolvem a MESMA equação, calibrada nos mesmos dados.
+
 A fotocorrente do LED segue a aproximação de Wien com o h de referência
 (CODATA). É o ponto central do mock: os dados que ele gera *contêm* o valor
 verdadeiro de h, então a regressão do software tem de conseguir recuperá-lo.
@@ -49,23 +53,17 @@ resistência dos cabos da medição a 2 fios.
 import math
 import random
 
-from utils.math_models import C, K_B, H_REF
+# A física do filamento (balanço de energia, calibração da dissipação e a
+# procedência dos números) mora em utils/math_models — é a MESMA usada por
+# `simulate_experiment_data` (A9). Aqui ficam só os instrumentos virtuais.
+from utils.math_models import (C, K_B, H_REF, ANCORA_FOTOCORRENTE,
+                               ANCORA_TEMPERATURA, TEMPERATURA_AMBIENTE_K,
+                               calibrar_dissipacao, resistencia_do_filamento,
+                               resolver_temperatura_regime)
 
 # --- Constantes da bancada virtual -------------------------------------------
 
-T_AMBIENTE = 298.15          # K (25 °C)
-
-# Razão k_cond/k_rad do ajuste sobre os CSVs reais (unidade: K³).
-#
-# Procedência: produzido por `Tests/calibrar_mock_com_dados_reais.py`, que
-# refaz o ajuste de mínimos quadrados sobre os 1127 pontos úteis de
-# `data_backup/`. Rode-o de novo se novas coletas forem acrescentadas.
-RAZAO_COND_RAD = 1.32760e8
-
-# Âncora de calibração: topo medido na bancada real.
-ANCORA_TENSAO = 12.0         # V
-ANCORA_TEMPERATURA = 2540.0  # K
-ANCORA_FOTOCORRENTE = 7.2e-7 # A, lida pelo LED de 590 nm a 2540 K
+T_AMBIENTE = TEMPERATURA_AMBIENTE_K
 
 # Exatidão dos instrumentos (datasheets — ver aba Referências).
 PWS_SETTING_PCT, PWS_SETTING_FIXO = 0.0005, 10e-3   # ±(0,05% + 10 mV)
@@ -105,17 +103,9 @@ class BancadaSimulada:
     # --- calibração ----------------------------------------------------------
 
     def _calibrar(self):
-        """Escala k_rad/k_cond para o filamento bater a âncora da bancada real."""
-        alvo, baixo, alto = ANCORA_TEMPERATURA, 1e-16, 1e-9
-        for _ in range(200):
-            self.k_rad = 0.5 * (baixo + alto)
-            self.k_cond = self.k_rad * RAZAO_COND_RAD
-            if self._resolver_temperatura(ANCORA_TENSAO) > alvo:
-                baixo = self.k_rad   # dissipa pouco demais, esquenta demais
-            else:
-                alto = self.k_rad
-        self.k_rad = 0.5 * (baixo + alto)
-        self.k_cond = self.k_rad * RAZAO_COND_RAD
+        """Escala a dissipação e o LED para baterem a âncora da bancada real."""
+        self.k_rad, self.k_cond = calibrar_dissipacao(
+            self.r0, self.alpha, self.beta)
 
         # Constante do LED: fixa a fotocorrente na âncora (Wien com o h real).
         self._fator_led = ANCORA_FOTOCORRENTE / math.exp(
@@ -128,8 +118,8 @@ class BancadaSimulada:
     # --- física --------------------------------------------------------------
 
     def resistencia(self, temperatura: float) -> float:
-        tc = temperatura - 273.15
-        return self.r0 * (1 + self.alpha * tc + self.beta * tc**2)
+        return float(resistencia_do_filamento(
+            temperatura, self.r0, self.alpha, self.beta))
 
     def resistencia_a_frio(self, t_ambiente_celsius: float) -> float:
         """
@@ -143,31 +133,9 @@ class BancadaSimulada:
                           + self.beta * t_ambiente_celsius**2)
 
     def _resolver_temperatura(self, tensao: float) -> float:
-        """
-        T de regime para uma tensão aplicada, por bissecção no balanço de energia.
-
-        A função potência_entregue − potência_dissipada é monótona decrescente
-        em T, então a bissecção é segura e não precisa de derivada.
-        """
-        if tensao <= 0:
-            return T_AMBIENTE
-
-        def desequilibrio(t):
-            return tensao**2 / self.resistencia(t) - (
-                self.k_rad * (t**4 - T_AMBIENTE**4)
-                + self.k_cond * (t - T_AMBIENTE)
-            )
-
-        baixo, alto = T_AMBIENTE, 4000.0
-        if desequilibrio(baixo) <= 0:
-            return T_AMBIENTE
-        for _ in range(120):
-            meio = 0.5 * (baixo + alto)
-            if desequilibrio(meio) > 0:
-                baixo = meio
-            else:
-                alto = meio
-        return 0.5 * (baixo + alto)
+        """T de regime para uma tensão — delega para a física compartilhada."""
+        return resolver_temperatura_regime(
+            tensao, self.r0, self.alpha, self.beta, self.k_rad, self.k_cond)
 
     def _retangular(self, limite: float) -> float:
         """Sorteio numa distribuição retangular de meia-largura `limite`."""

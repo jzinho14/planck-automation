@@ -9,6 +9,30 @@ E_CHARGE = 1.602176634e-19   # Carga elementar (C)
 
 TEMPERATURA_AMBIENTE_PADRAO = 25.0   # °C
 TEMPERATURA_MINIMA_PADRAO = 1800.0   # K — piso da região de Wien útil (ver A5)
+TEMPERATURA_AMBIENTE_K = 298.15      # K (25 °C) — ambiente do balanço de energia
+
+# --- Balanço de energia do filamento (Eq. 9 do artigo + condução) -----------
+#
+# Em regime estacionário, a potência elétrica entregue ao filamento é toda
+# dissipada:
+#
+#     V²/R(T) = k_rad·(T⁴ − T_amb⁴) + k_cond·(T − T_amb)
+#
+# O primeiro termo é a radiação (Stefan-Boltzmann, ε·σ·A agrupados em k_rad);
+# o segundo, a condução pelos terminais. É esta equação que liga a tensão
+# aplicada à temperatura — a relação V→T que o experimento de fato mede.
+#
+# Os números abaixo NÃO foram inventados: saem de um ajuste de mínimos
+# quadrados sobre os 1127 pontos úteis dos 52 CSVs reais de `data_backup/`
+# (resíduo mediano de 2,9% em potência), refeito por
+# `Tests/calibrar_mock_com_dados_reais.py`. O que o ajuste fixa é a RAZÃO
+# k_cond/k_rad — a forma da curva —; a escala é recalibrada por
+# `calibrar_dissipacao` para o filamento em uso bater a âncora medida na
+# bancada real: 2540 K a 12 V.
+RAZAO_COND_RAD = 1.32760e8   # k_cond/k_rad, em K³
+ANCORA_TENSAO = 12.0         # V — topo da varredura real
+ANCORA_TEMPERATURA = 2540.0  # K — temperatura medida nesse topo
+ANCORA_FOTOCORRENTE = 7.2e-7 # A — fotocorrente do LED de 590 nm nesse ponto
 
 # Menor fotocorrente que ainda carrega informação, em ampères (B6).
 #
@@ -82,27 +106,134 @@ def calculate_temperature(R_array: np.ndarray, R0: float, alpha: float, beta: fl
     T_kelvin = T_celsius + 273.15
     return T_kelvin
 
-def simulate_experiment_data(voltages: np.ndarray, R0: float, alpha: float, beta: float, 
-                             lambda_led_nm: float, noise_level: float = 0.05) -> tuple:
-    lambda_led = lambda_led_nm * 1e-9
-    
-    T_kelvin = np.linspace(1500, 3000, len(voltages))
-    T_celsius = T_kelvin - 273.15
-    R_filament = R0 * (1 + alpha * T_celsius + beta * T_celsius**2)
+def resistencia_do_filamento(T_kelvin, R0: float, alpha: float, beta: float):
+    """R(T) = R0·(1 + α·Tc + β·Tc²), com Tc em °C. Aceita escalar ou vetor."""
+    tc = np.asarray(T_kelvin, dtype=float) - 273.15
+    return R0 * (1 + alpha * tc + beta * tc**2)
+
+
+def resolver_temperatura_regime(tensao: float, R0: float, alpha: float, beta: float,
+                                k_rad: float, k_cond: float,
+                                t_ambiente_k: float = TEMPERATURA_AMBIENTE_K) -> float:
+    """
+    Temperatura de regime para uma tensão aplicada, por bissecção.
+
+    Resolve V²/R(T) = k_rad·(T⁴ − T_amb⁴) + k_cond·(T − T_amb). O desequilíbrio
+    (potência entregue − potência dissipada) é monótono decrescente em T, então
+    a bissecção é segura e não precisa de derivada.
+
+    É a MESMA função usada pela bancada simulada (`core/mock_hardware.py`) e
+    pela simulação (`simulate_experiment_data`): um único lugar para a relação
+    V→T, para os dois nunca divergirem.
+    """
+    if tensao <= 0:
+        return t_ambiente_k
+
+    def desequilibrio(t):
+        return tensao**2 / resistencia_do_filamento(t, R0, alpha, beta) - (
+            k_rad * (t**4 - t_ambiente_k**4) + k_cond * (t - t_ambiente_k)
+        )
+
+    baixo, alto = t_ambiente_k, 4000.0
+    if desequilibrio(baixo) <= 0:
+        return t_ambiente_k
+    for _ in range(120):
+        meio = 0.5 * (baixo + alto)
+        if desequilibrio(meio) > 0:
+            baixo = meio
+        else:
+            alto = meio
+    return 0.5 * (baixo + alto)
+
+
+def calibrar_dissipacao(R0: float, alpha: float, beta: float,
+                        razao_cond_rad: float = RAZAO_COND_RAD,
+                        ancora_tensao: float = ANCORA_TENSAO,
+                        ancora_temperatura: float = ANCORA_TEMPERATURA) -> tuple:
+    """
+    Escala (k_rad, k_cond) para o filamento dado bater a âncora da bancada real.
+
+    A razão k_cond/k_rad vem do ajuste sobre os CSVs reais; o que falta é a
+    escala absoluta, que depende da geometria do filamento (ε·σ·A). Em vez de
+    chutá-la, fixa-se o ponto medido: `ancora_tensao` → `ancora_temperatura`.
+    Bissecção em k_rad porque T(12 V) é monótona decrescente em k_rad.
+    """
+    baixo, alto = 1e-16, 1e-9
+    for _ in range(200):
+        k_rad = 0.5 * (baixo + alto)
+        k_cond = k_rad * razao_cond_rad
+        t = resolver_temperatura_regime(ancora_tensao, R0, alpha, beta, k_rad, k_cond)
+        if t > ancora_temperatura:
+            baixo = k_rad   # dissipa pouco demais, esquenta demais
+        else:
+            alto = k_rad
+    k_rad = 0.5 * (baixo + alto)
+    return k_rad, k_rad * razao_cond_rad
+
+
+def simulate_experiment_data(voltages: np.ndarray, R0: float, alpha: float, beta: float,
+                             lambda_led_nm: float, noise_level: float = 0.05,
+                             fuga_dmm: float = 4.5e-9,
+                             semente: int | None = None) -> tuple:
+    """
+    Gera uma varredura sintética com a física do experimento real (A9).
+
+    A versão antiga impunha T = linspace(1500, 3000) INDEPENDENTE das tensões:
+    o primeiro ponto de uma varredura 0–12 V já "estava" a 1500 K, e a relação
+    V→T — que é o coração do experimento — simplesmente não existia. Qualquer
+    conclusão tirada da simulação sobre faixa de varredura era fantasia.
+
+    Agora cada tensão passa pelo balanço de energia (`resolver_temperatura_regime`)
+    com a dissipação calibrada nos dados reais, e TUDO deriva daí:
+
+        V → T (balanço de energia) → R(T) → i = V/R → I_led (Wien, com o h da
+        CODATA embutido)
+
+    O h de referência está DENTRO dos dados gerados; recuperá-lo pela regressão
+    é o teste de coerência de toda a cadeia de análise.
+
+    Dois artefatos do instrumento real são reproduzidos de propósito:
+
+    - `fuga_dmm`: o fundo de ~4,5 nA que os CSVs reais mostram em tensão baixa.
+      Com ele, a simulação exibe o mesmo fenômeno da bancada — pontos frios que
+      não são sinal e precisam ser cortados pela região de Wien — em vez de
+      esconder o problema que a seleção de pontos existe para resolver.
+    - `noise_level`: ruído proporcional ao sinal, controlado pelo operador.
+
+    `semente` congela o gerador para testes reprodutíveis. Retorna
+    (tensões, corrente do filamento, resistência, temperatura, fotocorrente).
+    """
+    voltages = np.asarray(voltages, dtype=float)
+    rng = np.random.default_rng(semente)
+
+    k_rad, k_cond = calibrar_dissipacao(R0, alpha, beta)
+    T_kelvin = np.array([
+        resolver_temperatura_regime(v, R0, alpha, beta, k_rad, k_cond)
+        for v in voltages
+    ])
+
+    R_filament = resistencia_do_filamento(T_kelvin, R0, alpha, beta)
     current_filament = voltages / R_filament
-    
-    A_proportionality = 1e-5 
-    exponent = - (H_REF * C) / (lambda_led * K_B * T_kelvin)
-    ideal_photocurrent = A_proportionality * (1 / lambda_led**5) * np.exp(exponent)
-    
-    # CORREÇÃO: Ruído proporcional ao sinal medido + um piso instrumental do DMM (ex: 100 pA)
-    piso_dmm = 1e-10
-    noise = np.random.normal(0, noise_level * ideal_photocurrent + piso_dmm, size=len(voltages))
-    noisy_photocurrent = ideal_photocurrent + noise
-    
-    # Clipamos os valores muito negativos para não quebrar o logaritmo, limitando ao piso do DMM
-    noisy_photocurrent = np.clip(noisy_photocurrent, a_min=piso_dmm, a_max=None)
-    
+
+    # Wien ancorado no ponto medido da bancada real, como no mock: a escala
+    # absoluta do LED não importa para h (só a inclinação de ln I × 1/T), mas
+    # ancorá-la mantém os números na ordem de grandeza dos CSVs reais.
+    lambda_led = lambda_led_nm * 1e-9
+    expoente = -(H_REF * C) / (lambda_led * K_B * T_kelvin)
+    expoente_ancora = -(H_REF * C) / (lambda_led * K_B * ANCORA_TEMPERATURA)
+    fator_led = ANCORA_FOTOCORRENTE / np.exp(expoente_ancora)
+    ideal_photocurrent = np.where(
+        T_kelvin > TEMPERATURA_AMBIENTE_K,
+        fator_led * np.exp(np.maximum(expoente, -700.0)),   # evita underflow
+        0.0,
+    )
+
+    ruido = rng.normal(0.0, 1.0, size=len(voltages)) * (noise_level * ideal_photocurrent)
+    noisy_photocurrent = ideal_photocurrent + fuga_dmm + ruido
+
+    # O DMM não lê negativo nesta aplicação; o piso é a própria resolução.
+    noisy_photocurrent = np.clip(noisy_photocurrent, a_min=1e-10, a_max=None)
+
     return voltages, current_filament, R_filament, T_kelvin, noisy_photocurrent
 
 def selecionar_pontos_validos(T_kelvin: np.ndarray, photocurrent: np.ndarray,

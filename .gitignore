@@ -12,6 +12,8 @@ __pycache__/
 build/
 dist/
 *.spec
+# O spec do projeto é receita versionada, não artefato:
+!Software/planck.spec
 Output/
 
 # Artefatos temporários gerados pela UI (captura dos gráficos para o PDF)

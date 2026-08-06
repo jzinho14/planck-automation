@@ -18,3 +18,9 @@ pyqtgraph>=0.13.3
 
 # Geração de Relatórios PDF
 reportlab>=4.1.0
+
+# --- Ferramentas de build (não são dependência de execução) ---
+# Empacotamento do executável (Fase 7): instalar só quando for gerar o .exe.
+#     pip install pyinstaller && pyinstaller planck.spec
+# O instalador Windows é o instalador/planck_setup.iss (Inno Setup 6).
+# pyinstaller>=6.21
